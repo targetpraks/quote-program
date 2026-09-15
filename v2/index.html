@@ -156,6 +156,7 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
 <script>
 /* ============================== state ============================== */
 const PB_URL = 'http://127.0.0.1:8090';
+const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const pb = new PocketBase(PB_URL);
 const VENTURES = ['Infinity Brands','The Local Farmer','Papa Pasta','INFX Media','INFX Solutions','INFX Labs','FluxFlow','ACDC Express'];
 const DEPTS = ['Operations','Purchasing','Sales & Marketing','Finance','Production','Logistics','Admin','IT'];
@@ -806,7 +807,7 @@ window.makePO = async function(wi){
     });
     // notification
     await pb.collection('q_notifications').create({
-      user_email:'ricky@infinitybrands.co.za', kind:'po', title:po+' generated',
+      user_email: OWNER_EMAIL, kind:'po', title:po+' generated',
       body:r.id+' awarded to '+q.vendor.trim()
     }).catch(ne=>{ console.warn('notif skipped:', ne.message); });
     await loadRequests(); go('orders'); toast(po+' generated — queued for Zoho');
