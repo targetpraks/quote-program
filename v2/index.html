@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quorum — Purchasing Desk</title>
+<script src="https://cdn.jsdelivr.net/npm/pocketbase/dist/pocketbase.umd.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --obsidian:#0B0F1A; --panel:#131A2B; --panel2:#0F1524; --rule:#24314D; --rule-soft:#1B2438;
+  --ink:#E8ECF4; --muted:#8A94A8; --faint:#5A6478;
+  --gold:#D4AF6A; --gold-deep:#A9823F; --gold-soft:rgba(212,175,106,.14);
+  --green:#3E9B6F; --green-soft:rgba(62,155,111,.14);
+  --red:#C25B5B; --red-soft:rgba(194,91,91,.13);
+  --amber:#D99A3D; --amber-soft:rgba(217,154,61,.13);
+  --mono:'JetBrains Mono',monospace; --body:'Inter',sans-serif; --display:'Fraunces',serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{color-scheme:dark}
+body{background:var(--obsidian);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.5;min-height:100vh}
+::selection{background:var(--gold-soft)}
+a{color:var(--gold)}
+button{font-family:var(--body)}
+.app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+/* ── sidebar ── */
+aside{background:var(--panel2);border-right:1px solid var(--rule-soft);padding:22px 0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:0 22px 20px;border-bottom:1px solid var(--rule-soft)}
+.brand .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--gold);text-transform:uppercase}
+.brand h1{font-family:var(--display);font-weight:600;font-size:21px;margin-top:6px;color:var(--ink)}
+nav{flex:1;padding:18px 10px;display:flex;flex-direction:column;gap:2px}
+.nav-btn{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;color:var(--muted);font:500 13.5px var(--body);padding:10px 12px;border-radius:8px;cursor:pointer;text-align:left;border-left:2px solid transparent}
+.nav-btn:hover{color:var(--ink);background:rgba(255,255,255,.03)}
+.nav-btn.active{color:var(--ink);background:var(--gold-soft);border-left:2px solid var(--gold)}
+.nav-btn .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--gold);background:rgba(212,175,106,.1);padding:1px 7px;border-radius:99px}
+.rolebox{padding:16px 22px 0;border-top:1px solid var(--rule-soft)}
+.rolebox label{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--faint);text-transform:uppercase;color:var(--faint)}
+.rolebox select{width:100%;margin-top:8px;background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:8px;padding:9px 10px;font:500 13px var(--body)}
+.rolebox .who{margin-top:8px;font-size:12px;color:var(--muted)}
+/* ── main ── */
+main{padding:34px 40px 80px;max-width:1240px;width:100%}
+.topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:26px}
+.topbar .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold)}
+.topbar h2{font-family:var(--display);font-weight:600;font-size:30px;letter-spacing:.01em;margin-top:6px}
+.topbar .sub{color:var(--muted);margin-top:6px;font-size:13.5px;max-width:60ch}
+.btn{background:var(--gold);color:#14100A;border:0;font:600 13px var(--body);padding:10px 16px;border-radius:9px;cursor:pointer;white-space:nowrap}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--rule)}
+.btn.ghost:hover{color:var(--ink);border-color:var(--gold)}
+.btn.small{padding:6px 11px;font-size:12px;border-radius:7px}
+.btn.approve{background:var(--green)}
+.btn.reject{background:transparent;color:var(--red);border:1px solid rgba(194,91,91,.5)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+/* stat cards */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px}
+.stat{background:var(--panel);border:1px solid var(--rule-soft);border-radius:12px;padding:16px 18px}
+.stat .n{font-family:var(--mono);font-weight:600;font-size:26px;color:var(--ink)}
+.stat .n.gold{color:var(--gold)}
+.stat .l{color:var(--muted);font-size:12px;margin-top:4px}
+main{margin-inline:auto}
+/* panels & tables */
+.panel{background:var(--panel);border:1px solid var(--rule-soft);border-radius:14px;overflow:hidden;margin-bottom:22px}
+.panel-h{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:1px solid var(--rule-soft)}
+.panel-h h3{font:600 14.5px var(--body)}
+.panel-h .hint{color:var(--faint);font-size:12px}
+table{width:100%;border-collapse:collapse}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:left;padding:11px 14px;border-bottom:1px solid var(--rule);font-weight:600;white-space:nowrap}
+td{padding:12px 14px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tbody tr:hover{background:rgba(255,255,255,.02)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.right{text-align:right}
+.badge{display:inline-flex;align-items:center;gap:5px;font:600 11px var(--body);padding:3px 9px;border-radius:999px;white-space:nowrap}
+.b-quoting{background:var(--amber-soft,rgba(217,154,61,.13));color:var(--amber)}
+.b-pending{background:var(--gold-soft);color:var(--gold)}
+.b-approved{background:var(--green-soft);color:var(--green)}
+.b-rejected{background:var(--red-soft);color:var(--red)}
+.b-ordered{background:rgba(90,140,220,.14);color:#7EA6E8}
+.venture{font:600 11px var(--mono);color:var(--muted);letter-spacing:.04em}
+/* request detail */
+.crumbs{display:flex;align-items:center;gap:8px;color:var(--faint);font-size:12.5px;margin-bottom:14px;cursor:pointer}
+.crumbs b{color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:13px}
+.kv-k{color:var(--faint)}
+.quote-cols{grid-template-columns:1fr;gap:10px;margin-top:12px}
+.qcard{background:var(--panel2);border:1px solid var(--rule-soft);border-radius:12px;padding:14px;position:relative}
+.qcard.winner{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
+.qcard .vendor{font:600 14px var(--body);display:flex;align-items:center;gap:8px}
+.qcard .crown{color:var(--gold);font-size:13px}
+.qrow{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);padding:5px 0;border-bottom:1px dashed var(--rule-soft)}
+.qrow .num{color:var(--ink);white-space:nowrap}
+.qtotal{display:flex;justify-content:space-between;padding-top:10px;font:600 14px var(--body);white-space:nowrap}
+.qtotal .num{color:var(--gold);font-size:15px}
+.variance{font-family:var(--mono);font-size:11px;color:var(--red);margin-top:2px}
+.variance.best{color:var(--green)}
+.doc-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.04);border:1px solid var(--rule-soft);border-radius:7px;padding:4px 9px;font-size:11.5px;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis}
+/* matrix */
+.matrix th.vendor-h{color:var(--gold)}
+.matrix th:not(:first-child),.matrix td:not(:first-child){text-align:right}
+.matrix td.gap{color:var(--red);font-style:italic}
+.matrix tr.total-row td{border-top:2px solid var(--rule);font-weight:600;color:var(--ink)}
+.matrix td.best-cell{color:var(--gold);font-weight:600}
+.stamp{display:inline-block;font:600 12px var(--body);letter-spacing:.16em;text-transform:uppercase;color:var(--green);border:2px solid var(--green);border-radius:6px;padding:4px 10px;transform:rotate(-4deg)}
+.stamp.gold{color:var(--gold);border-color:var(--gold)}
+/* forms */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field.full{grid-column:1/-1}
+.field label{font:600 12px var(--body);color:var(--muted)}
+.field input,.field select,.field textarea{background:var(--panel2);border:1px solid var(--rule);border-radius:8px;color:var(--ink);padding:9px 11px;font:400 13px var(--body)}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--gold)}
+.lines-box{border:1px solid var(--rule-soft);border-radius:10px;overflow:hidden}
+.lines-box table td{padding:8px 10px}
+.lines-box input{width:100%;background:transparent;border:0;color:var(--ink);font:400 13px var(--body)}
+.lines-box input:focus{outline:none}
+.addline{color:var(--gold);background:none;border:0;font:600 12.5px var(--body);cursor:pointer;padding:9px 14px}
+.modal-bg{position:fixed;inset:0;background:rgba(5,8,15,.72);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal{background:var(--panel);border:1px solid var(--rule);border-radius:16px;padding:26px;width:720px;max-width:96vw;max-height:92vh;overflow:auto}
+.modal h3{font-family:var(--display);font-size:21px;font-weight:600;margin-bottom:4px}
+.modal .msub{color:var(--muted);font-size:13px;margin-bottom:18px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--gold);color:var(--ink);padding:11px 18px;border-radius:10px;font:500 13px var(--body);z-index:60;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.audit{font-size:12.5px;color:var(--muted)}
+.audit .t{font-family:var(--mono);font-size:11px;color:var(--faint);margin-right:8px}
+.empty{padding:40px;text-align:center;color:var(--faint)}
+.empty .big{font-family:var(--display);font-size:17px;color:var(--muted);margin-bottom:6px}
+pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-radius:10px;padding:14px;font:400 11.5px var(--mono);overflow:auto;max-height:340px;color:#B9C4DA}
+@media (max-width:960px){
+  .app{grid-template-columns:1fr}
+  aside{position:relative;height:auto;flex-direction:row;align-items:center;gap:12px;padding:12px 16px}
+  nav{flex-direction:row;overflow-x:auto;padding:0}
+  .brand h1{font-size:16px}
+  .rolebox{border:0;padding:0 8px}
+  main{padding:22px 16px 60px}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .grid2,.quote-cols,.form-col{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:no-preference){.stamp{animation:stamp .35s ease-out}@keyframes stamp{0%{transform:rotate(-4deg) scale(1.6);opacity:0}100%{transform:rotate(-4deg);opacity:1}}}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">
+      <div class="eyebrow">Purchasing desk</div>
+      <h1>Quorum</h1>
+    </div>
+    <nav id="nav"></nav>
+    <div class="rolebox" id="rolebox"></div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<script>
+/* ============================== state ============================== */
+const PB_URL = 'http://127.0.0.1:8090';
+const pb = new PocketBase(PB_URL);
+const VENTURES = ['Infinity Brands','The Local Farmer','Papa Pasta','INFX Media','INFX Solutions','INFX Labs','FluxFlow','ACDC Express'];
+const DEPTS = ['Operations','Purchasing','Sales & Marketing','Finance','Production','Logistics','Admin','IT'];
+const money = n => 'R ' + (Math.round((+n||0)*100)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
+const today = () => new Date().toISOString().slice(0,10);
+
+/* ─── Quorum v2 helpers ─── */
+const THRESHOLDS = {auto:5000, manager:50000, countersign:250000};
+const lineTotVatExcl = (line) => {
+  // prices entries: {i, p, vat} — normalise to VAT-exclusive
+  const p = +line.p||0;
+  if(line.vat === 'incl') return p/1.15;
+  return p;
+};
+const quoteTotalV2 = (q, lines) => {
+  let subtotal=0, complete=true, allVat=true;
+  const prices = q.prices;
+  const isV2 = Array.isArray(prices) && prices.length>0 && typeof prices[0]==='object' && prices[0]!==null && ('i' in prices[0]);
+  lines.forEach((ln,i)=>{
+    let entry;
+    if(isV2) entry = (prices||[]).find(e=>e.i===i);
+    else { const v = prices ? prices[i] : null; entry = (v==null||typeof v==='object') ? v : {p:v}; }
+    if(entry==null || entry.p==='' || entry.p==null){complete=false;return;}
+    if(!entry.vat){allVat=false;return;}
+    subtotal += lineTotVatExcl(entry)*(+ln.qty||0);
+  });
+  return {subtotal, total: subtotal+(+q.delivery||0), complete, allVat};
+};
+const bestTotalV2 = (r) => {
+  const t = (r.quotes||[]).map(q=>quoteTotalV2(q,r.lines)).filter(t=>t.complete && t.allVat);
+  return t.length ? Math.min(...t.map(x=>x.total)) : null;
+};
+const recommendedV2 = (r) => {
+  let best=null;
+  (r.quotes||[]).forEach((q,i)=>{
+    const t=quoteTotalV2(q,r.lines);
+    if(!t.complete || !t.allVat) return;
+    if(!best || t.total<best.t.total) best={i,t};
+  });
+  return best;
+};
+const bandFor = (r) => r.approval_band || 'manager';
+const approverFor = (band) => ({auto:'Auto (2 bids + tolerance)', manager:'Venture manager', countersign:'Manager + owner countersign', owner:'Owner only'})[band]||band;
+const priceOf = (q, i) => {
+  const pr = q && q.prices;
+  if (Array.isArray(pr) && pr.length && typeof pr[0]==='object' && pr[0]!==null) {
+    const e = pr.find(x=>x && x.i===i); return e ? e.p : null;
+  }
+  return pr ? pr[i] : null;
+};
+const priceEntry = (q, i) => {
+  const pr = q && q.prices;
+  if (Array.isArray(pr) && pr.length && typeof pr[0]==='object' && pr[0]!==null) return pr.find(x=>x && x.i===i)||null;
+  return (pr && pr[i]!=null && typeof pr[i]!=='object') ? {i, p:pr[i]} : null;
+};
+const rateExcl = (q, i) => { const e = priceEntry(q,i); if(e==null) return null; const v = +lineTotVatExcl(e); return isNaN(v) ? null : Math.round(v*100)/100; };
+
+
+let db = { view:'dash', viewId:null, role:null, user:null };
+let REQUESTS = [];
+
+async function loadRequests(){
+  const recs = await pb.collection('qp_requests').getFullList();
+  REQUESTS = recs.map(r => ({
+    id: r.ref, pbId: r.id, venture: r.venture, department: r.department,
+    requester: r.requester, requesterId: r.requester_id, neededBy: (r.needed_by||'').slice(0,10),
+    notes: r.notes || '', status: r.status, winner: r.winner, poNumber: r.po_number,
+    approvalBand: r.approval_band || 'manager', awardNote: r.award_note || '', estTotal: r.est_total,
+    lines: r.lines || [], audit: r.audit || [], quotes: []
+  }));
+  const qs = await pb.collection('qp_quotes').getFullList();
+  for(const q of qs){
+    const req = REQUESTS.find(r => r.pbId === q.request);
+    if(!req) continue;
+    req.quotes.push({
+      pbId: q.id, vendor: q.vendor, prices: q.prices,  // keep full v2 shape [{i,p,vat}]
+      delivery: q.delivery||0, leadDays: q.lead_days, validUntil: (q.valid_until||'').slice(0,10),
+      doc: q.doc ? {name: q.doc, url: pb.files.getUrl(q, q.doc)} : null
+    });
+  }
+}
+function save(){ /* server-backed */ }
+
+/* ============================== helpers ============================== */
+const $ = s => document.querySelector(s);
+const main = () => $('#main');
+const fmtD = ts => new Date(ts).toLocaleDateString('en-ZA',{day:'2-digit',month:'short'});
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function statusBadge(st){
+  const map={quoting:['b-quoting','Quoting'],pending:['b-pending','Pending approval'],approved:['b-approved','Approved'],rejected:['b-rejected','Rejected'],ordered:['b-ordered','Ordered']};
+  const [cls,label]=map[st]||['b-quoting',st]; return `<span class="badge ${cls}">${label}</span>`;
+}
+function quoteTotal(q, lines){
+  const t = quoteTotalV2(q, lines);
+  return {subtotal:t.subtotal, total:t.total, complete:t.complete && t.allVat};
+}
+function bestTotal(r){
+  const t = r.quotes.map(q=>quoteTotal(q,r.lines)).filter(t=>t.complete);
+  return t.length? Math.min(...t.map(t=>t.total)) : null;
+}
+function recommended(r){
+  let best=null;
+  r.quotes.forEach((q,i)=>{ const t=quoteTotal(q,r.lines); if(!t.complete) return;
+    if(!best || t.total<best.t.total) best={i,t}; });
+  return best;
+}
+function audit(r, actor, action, note){
+  r.audit.unshift({ts:Date.now(), actor, action, note:note||''});
+}
+function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 3200); }
+const who = () => db.user ? db.user.name : '';
+function backLabel(){ const m={dash: db.role==='manager'?'Approval desk':'Dashboard', requests:'All requests', quotes:'Quoting queue', orders:'Purchase orders', vendors:'Vendors', catalog:'Catalog', notifications:'Alerts', users:'Staff', settings:'Settings'}; return m[db.prev||'dash']||'Back to list'; }
+
+/* ============================== views ============================== */
+const views = {};
+function go(view, id){ if(view==='detail' && db.view && db.view!=='detail') db.prev=db.view; db.view=view; db.viewId=id||null; save(); render(); }
+function render(){
+  const mainEl = main();
+  if(!db.user){
+    document.querySelector('nav').innerHTML = '';
+    document.getElementById('rolebox').innerHTML = '';
+    mainEl.innerHTML = loginPage();
+    document.getElementById('liBtn').addEventListener('click', login);
+    return;
+  }
+  const role = db.role;
+  const navDef = [
+    role==='manager'  && ['dash','◈ Approval desk'],
+    ['requests','All requests'],
+    role==='purchaser' && ['quotes','Quoting queue'],
+    ['vendors','Vendors'],
+    ['catalog','Catalog'],
+    role!=='requester' && ['notifications','Alerts'],
+    role==='manager' && ['users','Staff'],
+    ['orders','Orders · Zoho'],
+    ['settings','Settings'],
+  ].filter(Boolean);
+  document.querySelector('nav').innerHTML = navDef.map(([v,l]) =>
+    `<button class="nav-btn" data-v="${v}">${l}<span class="count"></span></button>`).join('');
+  document.getElementById('rolebox').innerHTML = userHTML();
+  document.getElementById('btn-logout').addEventListener('click', logout);
+  const v = db.view||'dash';
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.v===v));
+  counts();
+  const viewFn = views[v==='detail'?'detail':v]||views.dash;
+  const out = viewFn();
+  if(out instanceof Promise) out.catch(err=>{ console.error(err); toast('Load failed: '+(err.message||err)); });
+  window.scrollTo({top:0});
+}
+function userHTML(){
+  return `<label style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--faint);text-transform:uppercase">Signed in</label>
+  <div style="margin-top:8px;font:600 13px var(--body)">${esc(db.user.name)}</div>
+  <div style="color:var(--muted);font-size:12px;margin:2px 0 10px">${esc(db.user.email)} · ${esc(db.role)}</div>
+  <button class="btn ghost small" id="btn-logout" style="width:100%">Sign out</button>`;
+}
+function loginPage(){
+  return `<div style="display:flex;justify-content:center;padding-top:9vh">
+  <div class="panel" style="width:420px;padding:34px">
+    <div class="kicker" style="font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold)">Purchasing desk</div>
+    <h2 style="font-family:var(--display);font-size:26px;font-weight:600;margin:8px 0 4px">Quorum</h2>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:20px">Sign in with your staff account.</div>
+    <div class="form" style="grid-template-columns:1fr">
+      <div class="field"><label>Email</label><input id="liEmail" type="email" autocomplete="username"></div>
+      <div class="field"><label>Password</label><input id="liPass" type="password" autocomplete="current-password"></div>
+      <button class="btn" id="liBtn" style="margin-top:6px">Sign in</button>
+      <div id="liErr" style="color:var(--red);font-size:12.5px;min-height:18px"></div>
+    </div></div></div>`;
+}
+function counts(){
+  const pend = REQUESTS.filter(r=>r.status==='pending');
+  const open = REQUESTS.filter(r=>['quoting','pending'].includes(r.status));
+  const c = {dash:pend.length, requests:REQUESTS.length, quotes:open.length, orders:REQUESTS.filter(r=>r.poNumber).length};
+  // async counts for v2 views (fire-and-forget)
+  if(db.user && (db.role==='manager'||db.role==='purchaser')){
+    pb.collection('q_vendors').getFullList().then(vs=>{
+      const b=document.querySelector('.nav-btn[data-v="vendors"] .count');
+      if(b) b.textContent = vs.length;
+    }).catch(()=>{});
+    pb.collection('q_notifications').getFullList().then(ns=>{
+      const b=document.querySelector('.nav-btn[data-v="notifications"] .count');
+      if(b) b.textContent = ns.filter(n=>!n.read).length || '';
+    }).catch(()=>{});
+  }
+  document.querySelectorAll('.nav-btn').forEach(b=>{
+    const el=b.querySelector('.count'); const n=c[b.dataset.v];
+    if(el) el.textContent = (n===undefined)?'':n;
+  });
+}
+
+/* ---------- dashboard (role-aware) ---------- */
+views.dash = function(){
+  const pend = REQUESTS.filter(r=>r.status==='pending');
+  const quoting = REQUESTS.filter(r=>r.status==='quoting');
+  const mine = db.role==='requester' ? REQUESTS.filter(r=>r.requesterId===db.user.id) : REQUESTS;
+  const stats = `
+    <div class="stats">
+      <div class="stat"><div class="n gold">${pend.length}</div><div class="l">Awaiting your approval</div></div>
+      <div class="stat"><div class="n">${quoting.length}</div><div class="l">Out with purchasers (quoting)</div></div>
+      <div class="stat"><div class="n">${REQUESTS.filter(r=>['approved','ordered'].includes(r.status)).length}</div><div class="l">Approved / ordered</div></div>
+      <div class="stat"><div class="n">${REQUESTS.filter(r=>r.poNumber).length}</div><div class="l">POs generated</div></div>
+    </div>`;
+  let queue = '';
+  if(pend.length){
+    queue = `<div class="panel"><div class="panel-h"><h3>Approval queue</h3><span class="hint">${db.role==='manager'?'Open a request to review the line-by-line comparison':'Visible to the approval desk'}</span></div>
+    <table><thead><tr><th>Request</th><th>Venture</th><th>Requested by</th><th class="right">Best total</th><th>Quotes</th><th></th></tr></thead><tbody>
+    ${pend.map(r=>{ const b=bestTotal(r); const rec=recommended(r);
+      return `<tr><td><b>${r.id}</b><div class="venture">${esc(r.venture)} · ${esc(r.department)}</div></td>
+      <td>${esc(r.requester)}<div style="color:var(--faint);font-size:12px">${r.lines.length} line${r.lines.length>1?'s':''}</div></td>
+      <td class="num">${b!=null?money(b):'—'}</td>
+      <td>${r.quotes.filter(q=>quoteTotal(q,r.lines).complete).length}/3 attached${rec?` · <span style="color:var(--gold)">→ ${esc(r.quotes[rec.i].vendor.trim())}</span>`:''}</td>
+      <td class="right"><button class="btn small" onclick="go('detail','${r.pbId}')">Review</button></td></tr>`;}).join('')}
+    </tbody></table>`;
+  } else {
+    queue = `<div class="panel"><div class="empty" style="padding:44px"><div class="big" style="font-family:var(--display);font-size:17px;margin-bottom:6px">Approval queue is clear</div><div style="color:var(--muted)">Requests land here the moment their third quote is attached.</div></div></div>`;
+  }
+  const myAct = db.role==='requester'
+    ? `<div class="panel"><div class="panel-h"><h3>My requests</h3></div><table><thead><tr><th>Ref</th><th>Status</th><th>Needed by</th></tr></thead><tbody>
+       ${mine.map(r=>`<tr><td>${r.id}</td><td>${statusBadge(r.status)}</td><td class="num">${esc(r.neededBy)}</td></tr>`).join('')}</tbody></table></div>` : '';
+  main().innerHTML = `
+    <div class="topbar"><div>
+      <div class="kicker">${db.role==='manager'?'Approval desk':db.role==='purchaser'?'Purchasing desk':'Department desk'}</div>
+      <h2>${db.role==='manager'?'Awaiting your approval':db.role==='purchaser'?'Outstanding purchases':'Your requests'}</h2>
+      <div class="sub">${db.role==='manager'
+        ? 'Every request below carries three vendor quotes, compared line by line.'
+        : db.role==='purchaser'
+        ? 'Source three quotes per outstanding request, upload the documents, capture the prices.'
+        : 'Track what you have asked purchasing for.'}</div>
+    </div>
+    <button class="btn" onclick="openNew()">＋ New purchase request</button></div>
+    ${stats}${queue}${db.role==='requester'?myAct:''}`;
+};
+
+/* ---------- requests list ---------- */
+views.requests = function(){
+  const list = db.role==='requester' ? REQUESTS.filter(r=>r.requesterId===db.user.id) : REQUESTS;
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Register</div><h2>All purchase requests</h2></div>
+    <button class="btn" onclick="openNew()">＋ New request</button></div>
+    <div class="panel"><table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Status</th><th class="right">Best total</th><th>Quotes</th><th>PO</th><th></th></tr></thead><tbody>
+    ${list.map(r=>{const b=bestTotal(r);
+      return `<tr><td><b>${r.id}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
+      <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.department)} · ${esc(r.requester)}</div></td>
+      <td>${statusBadge(r.status)}</td>
+      <td class="num">${b!=null?money(b):'—'}</td>
+      <td class="num">${r.quotes.length}/3</td>
+      <td class="num">${r.poNumber?esc(r.poNumber):'—'}</td>
+      <td class="right"><button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
+    </tbody></table></div>`;
+};
+
+/* ---------- quoting queue (purchaser) ---------- */
+views.quotes = function(){
+  const open = REQUESTS.filter(r=>['quoting','pending'].includes(r.status));
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Purchasing</div><h2>Outstanding &amp; awaiting approval</h2>
+    <div class="sub">Everything open in the pipeline — source three quotes, upload documents, capture line prices.</div></div>
+    <button class="btn" onclick="openNew()">＋ New purchase request</button></div>
+    <div class="panel"><table><thead><tr><th>Ref</th><th>What's needed</th><th>Status</th><th class="right">Quotes</th><th></th></tr></thead><tbody>
+    ${open.map(r=>`<tr><td><b>${r.id}</b><div class="venture">${esc(r.venture)}</div></td>
+      <td>${r.lines.map(l=>esc(l.item)+' ×'+esc(l.qty)).join('<br>')}</td>
+      <td class="right num">${r.quotes.length} / 3</td>
+      <td class="right"><button class="btn small" onclick="go('detail','${r.pbId}')">${r.status==='quoting'?'Attach quotes':'Review'}</button></td></tr>`).join('')}
+    </tbody></table></div>`;
+};
+
+/* ---------- detail ---------- */
+views.detail = function(){
+  const r = REQUESTS.find(x=>x.pbId===db.viewId);
+  if(!r){ go('dash'); return; }
+  const rec = recommended(r);
+  const best = bestTotal(r);
+  const isMgr = db.role==='manager', isPurch = db.role==='purchaser';
+  const matrix = r.quotes.length ? `
+    <div class="panel"><div class="panel-h"><h3>Comparison — line by line</h3><span class="hint">◆ Gold = recommended vendor (lowest total)</span></div>
+    <table class="matrix"><thead><tr><th>Line item</th><th>Qty</th>${r.quotes.map((q,i)=>`<th class="vendor-h">${esc(q.vendor||'Vendor '+(i+1))}${rec&&rec.i===i?' ◆':''}</th>`).join('')}</tr></thead><tbody>
+    ${r.lines.map((ln,i)=>`<tr><td><b>${esc(ln.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(ln.spec||'')}</div></td><td class="num">${esc(ln.qty)}</td>
+      ${r.quotes.map((q,vi)=>{ const p=priceOf(q,i);
+        if(p===''||p==null) return `<td class="gap num">missing</td>`;
+        const isBest = rec && rec.i===vi; return `<td class="num ${isBest?'best-cell':''}">${money(p)}${isBest?' ◆':''}</td>`; }).join('')}</tr>`).join('')}
+    <tr class="total"><td>Delivery</td><td></td>${r.quotes.map((q,vi)=>`<td class="num ${rec&&rec.i===vi?'best-cell':''}">${money(q.delivery||0)}</td>`).join('')}</tr>
+    <tr class="total"><td>TOTAL</td><td></td>${r.quotes.map((q,vi)=>{const t=quoteTotal(q,r.lines);
+      return `<td class="num ${rec&&rec.i===vi?'best-cell':''}">${t.complete?money(t.total):'—'}</td>`;}).join('')}</tr>
+    <tr><td>Variance vs best</td><td></td>${r.quotes.map((q,vi)=>{const t=quoteTotal(q,r.lines); const b=best;
+      if(!t.complete||b==null) return '<td class="num">—</td>';
+      const v=(t.total-b)/b*100; return `<td class="num ${v===0?'best-cell':''}">${v===0?'best':'+'+v.toFixed(1)+'%'}</td>`;}).join('')}</tr>
+    </tbody></table></div>` : `<div class="panel"><div class="empty" style="padding:38px;color:var(--muted)">No quotes attached yet.${isPurch?' Upload the three vendor quotes below.':''}</div></div>`;
+
+  const quoteCards = r.quotes.map((q,vi)=>{ const t=quoteTotal(q,r.lines); const isRec = rec && rec.i===vi;
+    return `<div class="qcard ${isRec?'winner':''}">
+      <div class="vendor">${isRec?'<span class="crown">◆</span>':''}${esc(q.vendor||'Vendor '+(vi+1))}</div>
+      <div class="qrow"><span>Delivery</span><span class="num">${money(q.delivery||0)}</span></div>
+      <div class="qrow"><span>Lead time</span><span class="num">${esc(q.leadDays||'—')} days</span></div>
+      <div class="qrow"><span>Valid until</span><span class="num">${esc(q.validUntil||'—')}</span></div>
+      <div class="qrow"><span>Doc</span>${q.doc?`<span class="doc-chip">📄 ${esc(q.doc.name)}</span>`:'<span style="color:var(--red)">none</span>'}</div>
+      <div class="qtotal"><span>${t.complete?'Total':'Incomplete'}</span><span class="num">${t.complete?money(t.total):'—'}</span></div>
+      ${isMgr && r.status==='pending' ? `<button class="btn small approve" style="margin-top:10px;width:100%" onclick="approve(${vi})">Approve this vendor</button>`:''}
+    </div>`;}).join('');
+
+  const actions = [];
+  if(r.status==='pending' && isMgr) actions.push(`<button class="btn reject" onclick="rejectReq()">Reject request…</button>`);
+  if(r.status==='approved' && isPurch) actions.push(`<button class="btn" onclick="makePO(${r.winner})">Generate PO for ${esc(r.quotes[r.winner].vendor.trim())}</button>`);
+  if(r.poNumber) actions.push(`<button class="btn ghost" onclick="exportZoho('${r.pbId}')">Export Zoho payload</button>`);
+  if(r.poNumber) actions.push(`<button class="btn ghost" onclick="exportCSV('${r.pbId}')">PO CSV</button>`);
+
+  main().innerHTML = `
+    <div class="crumbs" onclick="go(db.prev||'dash')">← ${backLabel()}</div>
+    <div class="topbar"><div>
+      <div class="kicker">${esc(r.venture)} · ${esc(r.department)}</div>
+      <h2 style="display:flex;align-items:center;gap:14px">${r.id} ${statusBadge(r.status)} ${r.status==='approved'?`<span class="stamp">Approved</span>`:''}${r.poNumber?`<span class="badge b-ordered">${r.poNumber}</span>`:''}</h2>
+      <div class="sub">Needed by <span class="num">${esc(r.neededBy)}</span> · requested by ${esc(r.requester)}${r.notes?` — ${esc(r.notes)}`:''}</div>
+    </div><div style="display:flex;gap:10px">${actions.join('')}</div></div>
+    <div class="grid2">
+      <div>
+        ${matrix}
+        <div class="panel"><div class="panel-h"><h3>Audit trail</h3></div>
+          <div style="padding:14px 20px" class="audit">${r.audit.map(a=>`<div style="padding:7px 0;border-bottom:1px dashed var(--rule-soft)"><span class="t">${new Date(a.ts).toLocaleString('en-ZA',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span><b>${esc(a.actor)}</b> — ${esc(a.action)}${a.note?` <span style="color:var(--faint)">· ${esc(a.note)}</span>`:''}</div>`).join('')}</div>
+        </div>
+      </div>
+      <div>
+        <div class="panel"><div class="panel-h"><h3>Requested lines</h3></div>
+          <table><tbody>${r.lines.map(l=>`<tr><td><b>${esc(l.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(l.spec||'')}</div></td><td class="num right">× ${esc(l.qty)}</td></tr>`).join('')}</tbody></table></div>
+        <div class="panel"><div class="panel-h"><h3>Vendor quotes</h3><span class="hint">${r.quotes.length}/3${r.status==='quoting'?' — need 3 to submit for approval':''}</span></div>
+          <div style="padding:14px" class="quote-cols">${r.quotes.map((q,vi)=>qcardMini(r,vi)).join('')}
+          ${r.quotes.length<3 && (isPurch||db.role==='requester')?`<button class="btn small ghost" onclick="addQuote('${r.pbId}')">＋ Add quote</button>`:''}</div></div>
+      </div>
+    </div>`;
+};
+function qcardMini(r,vi){ const q=r.quotes[vi]; const t=quoteTotal(q,r.lines); const rec=recommended(r); const isRec=rec&&rec.i===vi; const isMgr=db.role==='manager';
+  return `<div class="qcard" style="margin:0;padding:12px;${isRec?'border-color:var(--gold)':''}">
+    <div class="vendor" style="font-size:12.5px">${isRec?'<span class="crown">◆</span>':''}${esc((q.vendor||'V'+(vi+1)).trim())}</div>
+    <div class="qtotal" style="padding-top:6px"><span class="num" style="font-size:14px">${t.complete?money(t.total):'—'}</span></div>
+    ${q.doc?`<a class="doc-chip" style="margin-top:8px;display:inline-flex;max-width:100%" href="${q.doc.url}" target="_blank">📄 ${esc(q.doc.name)}</a>`:''}
+    ${isMgr && r.status==='pending' ? `<button class="btn small approve" style="margin-top:8px;width:100%" onclick="approve(${vi})">Approve</button>`:''}</div>`; }
+
+/* ---------- orders ---------- */
+views.orders = function(){
+  const ords = REQUESTS.filter(r=>r.poNumber && (db.role!=='requester' || r.requesterId===db.user.id));
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">After approval</div><h2>Purchase orders</h2>
+    <div class="sub">Approved requests become POs. Export the Zoho Inventory payload for direct push (Phase 2 wires the live API — credentials in Settings).</div></div></div>
+    ${ords.length? `<div class="panel"><table><thead><tr><th>PO</th><th>From request</th><th>Vendor</th><th class="right">Total</th><th></th></tr></thead><tbody>
+    ${ords.map(r=>{const q=r.quotes[r.winner]; const t=quoteTotal(q,r.lines);
+      return `<tr><td><b>${r.poNumber}</b></td><td>${r.id}<div class="venture">${esc(r.venture)}</div></td>
+      <td>${esc(r.quotes[r.winner].vendor.trim())}</td><td class="num">${money(quoteTotal(q,r.lines).total)}</td>
+      <td class="right" style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn small ghost" onclick="exportZoho('${r.pbId}')">Zoho JSON</button>
+        <button class="btn small ghost" onclick="exportCSV('${r.pbId}')">CSV</button>
+        <button class="btn small" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
+    </tbody></table></div>`
+    : `<div class="panel"><div class="empty" style="padding:44px"><div style="font-family:var(--display);font-size:17px;margin-bottom:6px">No orders yet</div><div style="color:var(--muted)">Approve a request on the desk — it becomes a purchase order here.</div></div></div>`}`;
+};
+
+/* ---------- vendors (v2) ---------- */
+views.vendors = async function(){
+  const vendors = await pb.collection('q_vendors').getFullList().catch(()=>[]);
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Master data</div><h2>Vendors</h2>
+    <div class="sub">Invite-ready suppliers. Tax clearance expiry is tracked — expired clearance blocks awards over R50k.</div></div>
+    ${db.role==='manager'||db.role==='purchaser'?`<button class="btn" onclick="addVendor()">＋ Add vendor</button>`:''}</div>
+    <div class="panel"><table><thead><tr><th>Vendor</th><th>Contact</th><th>Terms</th><th>VAT no.</th><th>Tax clearance</th><th>Flags</th><th></th></tr></thead><tbody>
+    ${vendors.map(v=>{
+      const exp=v.tax_clearance_expiry? new Date(v.tax_clearance_expiry) : null;
+      const expSoon = exp && (exp-new Date())<90*86400000;
+      const expOut = exp && exp<new Date();
+      return `<tr><td><b>${esc(v.name)}</b>${v.related_party?'<div class="venture" style="color:var(--amber)">related party</div>':''}</td>
+      <td class="num">${esc(v.contact_email||'—')}<div style="color:var(--faint);font-size:12px">${esc(v.contact_phone||'')}</div></td>
+      <td class="num">${esc(v.payment_terms||'—')}</td>
+      <td class="num">${esc(v.vat_number||'—')}</td>
+      <td class="num">${exp? new Date(exp).toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'}) : '—'} ${expOut?'<span class="badge b-rejected">expired</span>':expSoon?'<span class="badge b-quoting">renew soon</span>':''}</td>
+      <td>${v.blacklisted?'<span class="badge b-rejected">blacklisted</span>':'<span class="badge b-approved">ok</span>'}</td>
+      <td class="right" style="display:flex;gap:6px;justify-content:flex-end">
+        <button class="btn small ghost" onclick="toggleVendor('${v.id}', ${!v.blacklisted})">${v.blacklisted?'Unblock':'Blacklist'}</button>
+      </td></tr>`;}).join('')}
+    </tbody></table></div>`;
+};
+window.toggleVendor = async function(vid, blacklisted){
+  await pb.collection('q_vendors').update(vid, {blacklisted});
+  toast(blacklisted?'Vendor blacklisted — cannot be invited':'Vendor unblocked'); views.vendors();
+};
+window.addVendor = function(){
+  const m=document.createElement('div'); m.className='modal-bg';
+  m.innerHTML=`<div class="modal" style="width:540px"><h3 style="font-family:var(--display);font-size:20px">Add vendor</h3>
+    <div class="msub">Invite-ready minimal fields — never store banking details here (Zoho Books owns those).</div>
+    <div class="form" style="grid-template-columns:1fr 1fr">
+      <div class="field full"><label>Name</label><input id="vName"></div>
+      <div class="field"><label>Contact email</label><input id="vEmail"></div>
+      <div class="field"><label>Phone</label><input id="vPhone"></div>
+      <div class="field"><label>Payment terms</label><input id="vTerms" value="30 days"></div>
+      <div class="field"><label>VAT number</label><input id="vVat"></div>
+      <div class="field"><label>Tax clearance expiry</label><input type="date" id="vExp"></div>
+      <div class="field full"><label>Related party?</label><select id="vRP"><option value="no">No</option><option value="yes">Yes — owner-linked (disclosed)</option></select></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="saveVendor()">Create vendor</button></div></div>`;
+  document.body.appendChild(m);
+};
+window.saveVendor = async function(){
+  try{
+    await pb.collection('q_vendors').create({
+      name: document.getElementById('vName').value.trim(), contact_email: document.getElementById('vEmail').value.trim(),
+      contact_phone: document.getElementById('vPhone').value.trim(), payment_terms: document.getElementById('vTerms').value.trim(),
+      vat_number: document.getElementById('vVat').value.trim(),
+      tax_clearance_expiry: document.getElementById('vExp').value ? document.getElementById('vExp').value+' 00:00:00.000Z' : null,
+      related_party: document.getElementById('vRP').value==='yes',
+      related_party_note: document.getElementById('vRP').value==='yes' ? 'Owner-linked entity — disclosed' : ''
+    });
+    closeModal(); toast('Vendor added'); views.vendors();
+  }catch(e){ toast('Create failed: '+(e.message||e)); }
+};
+
+/* ---------- catalog (v2) ---------- */
+views.catalog = async function(){
+  const items = await pb.collection('q_catalog').getFullList().catch(()=>[]);
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Master data</div><h2>Item catalog</h2>
+    <div class="sub">GL-coded items with estimates — requesters pick, prices default, spend reports mirror the P&L.</div></div></div>
+    <div class="panel"><table><thead><tr><th>Item</th><th>Unit</th><th>GL code</th><th>GL group</th><th class="right">Est. price (VAT-excl)</th></tr></thead><tbody>
+    ${items.map(i=>`<tr><td><b>${esc(i.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(i.default_spec||'')}</div></td>
+      <td class="num">${esc(i.unit||'—')}</td><td class="num">${esc(i.gl_code)}</td><td>${esc(i.gl_group||'')}</td>
+      <td class="num right">${money(i.est_price)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+};
+
+/* ---------- notifications (v2) ---------- */
+views.notifications = async function(){
+  const items = await pb.collection('q_notifications').getFullList().catch(()=>[]);
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Alerts</div><h2>Notification log</h2>
+    <div class="sub">Every alert Quorum raised. Cliq DM + email fire in production; this is the system-of-record log.</div></div></div>
+    ${items.length? `<div class="panel"><table><thead><tr><th>When</th><th>To</th><th>Alert</th><th></th></tr></thead><tbody>
+    ${items.map(n=>`<tr><td class="num">${esc((n.created||'').slice(0,16).replace('T',' '))}</td><td>${esc(n.user_email)}</td>
+      <td><b>${esc(n.title)}</b><div style="color:var(--muted);font-size:12px">${esc(n.body||'')}</div></td>
+      <td class="right">${n.link?`<a class="btn small ghost" href="${n.link}" target="_blank">Open</a>`:''}</td></tr>`).join('')}
+    </tbody></table></div>`
+    : `<div class="panel"><div class="empty" style="padding:44px"><div class="big">No alerts yet</div><div style="color:var(--muted)">Alerts fire when tenders await your approval, bids land, or POs push.</div></div></div>`}`;
+};
+
+
+/* ---------- settings ---------- */
+views.settings = function(){
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Configuration</div><h2>Settings</h2></div></div>
+    <div class="panel"><div class="panel-h"><h3>Zoho Inventory link (Phase 2)</h3></div>
+      <div style="padding:18px" class="form-col" >
+        <div class="form" style="grid-template-columns:1fr 1fr">
+          <div class="field"><label>Organisation ID</label><input id="zOrg" value="${esc(db.zohoOrg||'')}" placeholder="e.g. 7g8k9…"></div>
+          <div class="field"><label>Minimum quotes required</label><select id="qMin"><option>3</option><option>2</option></select></div>
+          <div class="field full"><label>API location ( Books/Inventory region )</label>
+            <select id="zReg"><option value="https://www.zohoapis.com/inventory/v1">zohoapis.com (US)</option>
+            <option value="https://www.zohoapis.eu/inventory/v1">zohoapis.eu (EU)</option>
+            <option value="https://www.zohoapis.in/inventory/v1">zohoapis.in (IN)</option></select></div>
+          <div class="field full" style="color:var(--muted);font-size:12.5px">Direct push needs an OAuth token with <span class="num">ZohoInventory.purchaseorders.CREATE</span> scope. Until credentials are configured, every approved PO exports a ready payload — paste-ready for the API or import.</div>
+        </div>
+      </div></div>
+    <div class="panel"><div class="panel-h"><h3>Data</h3></div>
+      <div style="padding:18px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn ghost" onclick="backupAll()">Export full backup (JSON)</button>
+        <label class="btn ghost" style="cursor:pointer">Import backup<input type="file" accept=".json" style="display:none" onchange="restoreAll(this)"></label>
+        <button class="btn ghost" onclick="wipe()">Reset demo data</button>
+      </div></div>`;
+  $('#zOrg').addEventListener('change',e=>{db.zohoOrg=e.target.value.trim();save();});
+  $('#zReg').addEventListener('change',e=>{db.zohoReg=e.target.value;save();});
+  if(db.zohoReg) $('#zReg').value=db.zohoReg;
+};
+
+/* ============================== actions ============================== */
+window.login = async function(){
+  const email = document.getElementById('liEmail').value.trim();
+  const pass = document.getElementById('liPass').value;
+  const btn = document.getElementById('liBtn');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try{
+    const res = await pb.collection('qp_users').authWithPassword(email, pass);
+    const rec = res.record || res;   // SDK >=0.23 returns {record, token}
+    db.user = rec; db.role = rec.role;
+    await loadRequests(); render();
+  }catch(e){
+    document.getElementById('liErr').textContent = 'Sign-in failed — check email and password.';
+    btn.disabled = false; btn.textContent = 'Sign in';
+  }
+};
+window.logout = () => { pb.authStore.clear(); db.user=null; db.role=null; REQUESTS=[]; go('dash'); };
+
+window.openNew = function(){
+  const m=document.createElement('div'); m.className='modal-bg';
+  m.innerHTML=`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">New purchase request</h3>
+    <div class="msub">What does the department need? Purchasing will source three quotes.</div>
+    <div class="form">
+      <div class="field"><label>Venture</label><select id="nVenture">${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
+      <div class="field"><label>Department</label><select id="nDept">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>
+      <div class="field"><label>Needed by</label><input type="date" id="nNeeded" value="${today()}"></div>
+      <div class="field"><label>Requested by</label><input id="nReq" value="${esc(db.user.name)}" readonly></div>
+      <div class="field full"><label>Notes</label><textarea id="nNotes" rows="2" placeholder="Context the approver should have"></textarea></div>
+      <div class="field full"><label>Line items</label>
+        <div class="lines-box"><table id="nLines"><tbody>
+          <tr><td><input placeholder="Item" class="li"></td><td><input placeholder="Spec (optional)" class="ls"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1"></td></tr>
+        </tbody></table></div>
+        <button class="addline" onclick="addLine()">＋ Add line</button></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="submitReq()">Submit request</button></div></div>`;
+  document.body.appendChild(m);
+};
+window.addLine = function(){
+  const tb=document.querySelector('#nLines tbody'); const tr=document.createElement('tr');
+  tr.innerHTML=`<td><input placeholder="Item" class="li"></td><td><input placeholder="Spec (optional)" class="ls"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1"></td>`;
+  tb.appendChild(tr); tr.querySelector('input').focus();
+};
+window.closeModal = () => document.querySelectorAll('.modal-bg').forEach(m=>m.remove());
+window.submitReq = async function(){
+  const lines=[...document.querySelector('#nLines tbody').rows].map(tr=>({
+    item:tr.querySelector('.li').value.trim(), spec:tr.querySelector('.ls').value.trim(), qty:tr.querySelector('.lq').value.trim()||'1'
+  })).filter(l=>l.item);
+  if(!lines.length){ toast('Add at least one line item'); return; }
+  const yr = new Date().getFullYear();
+  let n = REQUESTS.filter(r=>r.id.startsWith('RQ-'+yr)).length + 1;
+  let ref = `RQ-${yr}-${String(n).padStart(4,'0')}`;
+  while (REQUESTS.some(r=>r.id===ref)) { n += 1; ref = `RQ-${yr}-${String(n).padStart(4,'0')}`; }
+  try{
+    const rec = await pb.collection('qp_requests').create({
+      ref, venture:document.getElementById('nVenture').value, department:document.getElementById('nDept').value,
+      requester: db.user.name, requester_id: db.user.id, needed_by: document.getElementById('nNeeded').value + ' 00:00:00.000Z',
+      notes: document.getElementById('nNotes').value.trim(), status:'quoting',
+      lines, audit:[{ts:new Date().toISOString(), actor:db.user.name, action:'Request created', note: lines.length+' line(s)'}]
+    });
+    closeModal(); await loadRequests(); go('detail', rec.id); toast('Request '+ref+' submitted to purchasing');
+  }catch(e){ toast('Could not save request: ' + (e.message||e)); }
+};
+window.addQuote = function(id){
+  const r=REQUESTS.find(x=>x.pbId===id); if(!r) return;
+  const m=document.createElement('div'); m.className='modal-bg';
+  m.innerHTML=`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">Attach vendor quote</h3>
+    <div class="msub">Quote ${r.quotes.length+1} of 3 — upload the vendor document and capture line prices.</div>
+    <div class="form">
+      <div class="field full"><label>Vendor name</label><input id="qVendor" placeholder="Vendor name"></div>
+      <div class="field full"><label>Quote document (PDF / image)</label><input type="file" id="qDoc" accept=".pdf,image/*"></div>
+      <div class="field"><label>Delivery cost (R)</label><input type="number" id="qDel" value="0" min="0"></div>
+      <div class="field"><label>Lead time (days)</label><input type="number" id="qLead" value="3" min="0"></div>
+      <div class="field"><label>Valid until</label><input type="date" id="qValid"></div>
+      <div class="field full"><label>Line prices (unit, R — VAT status per line)</label>
+        <div class="lines-box"><table><tbody>
+        ${r.lines.map((l,i)=>`<tr><td>${esc(l.item)} ×${esc(l.qty)}</td><td style="width:110px"><input type="number" step="0.01" class="lp num" data-i="${i}" placeholder="0.00"></td><td style="width:130px"><select class="lv" data-i="${i}"><option value="excl">VAT excl</option><option value="incl">VAT incl</option><option value="zero">Zero-rated</option></select></td></tr>`).join('')}
+        </tbody></table></div></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="saveQuote('${id}')">Save quote</button></div></div>`;
+  document.body.appendChild(m);
+};
+window.saveQuote = async function(id){
+  const r=REQUESTS.find(x=>x.pbId===id); if(!r) return;
+  const vendor=document.getElementById('qVendor').value.trim();
+  if(!vendor){ toast('Vendor name required'); return; }
+  const docInput = document.getElementById('qDoc');
+  const fd = new FormData();
+  fd.append('request', r.pbId);
+  fd.append('vendor', vendor);
+  const prices=[]; let vatMissing=false;
+  document.querySelectorAll('.lp').forEach(inp=>{
+    if(inp.value!==''){
+      const vat = (document.querySelector(`.lv[data-i="${inp.dataset.i}"]`)||{}).value || '';
+      if(!vat) vatMissing=true;
+      prices.push({i:+inp.dataset.i, p:+inp.value, vat});
+    }
+  });
+  if(!prices.length){ toast('Capture at least one line price'); return; }
+  if(vatMissing){ toast('VAT status required per priced line (excl / incl / zero-rated)'); return; }
+  fd.append('prices', JSON.stringify(prices));
+  fd.append('delivery', document.getElementById('qDel').value||'0');
+  fd.append('lead_days', document.getElementById('qLead').value||'0');
+  if(document.getElementById('qValid').value) fd.append('valid_until', document.getElementById('qValid').value+' 00:00:00.000Z');
+  fd.append('uploaded_by', db.user.name);
+  if(docInput.files[0]) fd.append('doc', docInput.files[0]);
+  try{
+    await pb.collection('qp_quotes').create(fd);
+    // Audit append + 3-quote flip are enforced server-side (pb_hooks/quorum.pb.js)
+    await loadRequests(); closeModal(); go('detail', id);
+    toast('Quote saved — ' + vendor);
+  }catch(e){ toast('Upload failed: ' + (e.message||e)); }
+};
+window.approve = async function(vi){
+  const r=REQUESTS.find(x=>x.pbId===db.viewId); if(!r) return;
+  const t=quoteTotalV2(r.quotes[vi], r.lines);
+  const best=bestTotalV2(r);
+  let memo='';
+  if((r.quotes||[]).length < 3){
+    memo = prompt('Sole-source / emergency waiver — this award has fewer than 3 bids. Justification (required):');
+    if(memo==null || !memo.trim()){ toast('Waiver justification required to award below 3 bids'); return; }
+    memo = 'SOLE-SOURCE WAIVER: ' + memo;
+  } else if(best!=null && t.total>best+0.009){
+    memo=prompt('Override memo — why not the cheapest compliant bid? (required):');
+    if(memo==null || !memo.trim()){ toast('Override memo required to award a non-cheapest vendor'); return; }
+  }
+  const alreadySigned = (r.audit||[]).some(a=>a.action && a.action.indexOf('Manager signed')===0);
+  if(r.approvalBand==='countersign' && !alreadySigned){
+    // first signature; owner must countersign (do NOT change status/winner yet)
+    try{
+      await pb.collection('qp_requests').update(r.pbId, {
+        award_note: memo || '',
+        audit:[{ts:new Date().toISOString(), actor:db.user.name, action:'Manager signed — awaiting owner countersign', note:(memo?('Override: '+memo):'')+' | Vendor: '+r.quotes[vi].vendor.trim()}, ...(r.audit||[])]
+      });
+      await loadRequests(); toast('Manager signature recorded — owner countersign required'); render(); return;
+    }catch(e){ toast('Failed: '+(e.message||e)); return; }
+  }
+  try{
+    await pb.collection('qp_requests').update(r.pbId, {
+      status:'approved', winner:vi, award_note: memo || (best!=null && Math.abs(t.total-best)<=0.009 ? 'Lowest compliant bid' : ''),
+      approval_band: r.approvalBand,
+      audit:[{ts:new Date().toISOString(), actor:db.user.name, action:'Approved — '+r.quotes[vi].vendor.trim(),
+              note:(memo?('Override memo: '+memo+' · '):'')+'Band: '+r.approvalBand}, ...(r.audit||[])]
+    });
+    // outbox entry for PO push
+    await loadRequests();
+    toast('Awarded to '+r.quotes[vi].vendor.trim()+(memo?' (override memo filed)':'')); render();
+  }catch(e){ toast('Approval failed: '+(e.message||e)); }
+};
+window.rejectReq = async function(){
+  const r=REQUESTS.find(x=>x.pbId===db.viewId); if(!r) return;
+  const note=prompt('Rejection reason (required):');
+  if(note==null) return;
+  try{
+    await pb.collection('qp_requests').update(r.pbId, {
+      status:'rejected',
+      audit:[{ts:new Date().toISOString(), actor:db.user.name, action:'Rejected', note:note||'No reason given'}, ...(r.audit||[])]
+    });
+    await loadRequests(); toast('Request rejected'); render();
+  }catch(e){ toast('Failed: '+(e.message||e)); }
+};
+window.makePO = async function(wi){
+  const r=REQUESTS.find(x=>x.pbId===db.viewId); if(!r) return;
+  let poN = REQUESTS.filter(x=>(x.poNumber||'').startsWith('PO-'+new Date().getFullYear())).length + 1;
+  let po = `PO-${new Date().getFullYear()}-${String(poN).padStart(4,'0')}`;
+  while (REQUESTS.some(x=>x.poNumber===po)) { poN += 1; po = `PO-${new Date().getFullYear()}-${String(poN).padStart(4,'0')}`; }
+  const q=r.quotes[wi];
+  try{
+    await pb.collection('qp_requests').update(r.pbId, {
+      status:'ordered', winner:wi, po_number:po,
+      audit:[{ts:new Date().toISOString(), actor:'System', action:po+' generated', note:'Vendor: '+q.vendor.trim()}, ...(r.audit||[])]
+    });
+    // outbox: Zoho push queue (pushed=manual until OAuth wired)
+    await pb.collection('q_outbox').create({
+      po_number: po, request_ref: r.id, push_status: 'manual',
+      payload: {vendor_name:q.vendor.trim(), reference_number:po, date: today(),
+      line_items: r.lines.map((l,i)=>({name:l.item, description:l.spec||'', rate:rateExcl(q,i), quantity:+l.qty||1})),
+                shipping_rate:+q.delivery||0}
+    });
+    // notification
+    await pb.collection('q_notifications').create({
+      user_email:'ricky@infinitybrands.co.za', kind:'po', title:po+' generated',
+      body:r.id+' awarded to '+q.vendor.trim()
+    }).catch(ne=>{ console.warn('notif skipped:', ne.message); });
+    await loadRequests(); go('orders'); toast(po+' generated — queued for Zoho');
+  }catch(e){ toast('Failed: '+(e.message||e)); }
+};
+window.exportZoho = function(id){
+  const r=REQUESTS.find(x=>x.pbId===id); const q=r.quotes[r.winner];
+  const payload={
+    vendor_name: q.vendor.trim(), reference_number: r.poNumber, date: today(),
+    line_items: r.lines.map((l,i)=>({name:l.item, description:l.spec||'', rate:rateExcl(q,i), quantity:+l.qty||1})),
+    shipping_rate: +q.delivery||0,
+    notes: `Quorum ${r.id} — 3-quote approval on record.`
+  };
+  download(r.poNumber+'-zoho-inventory-payload.json', JSON.stringify(payload,null,2),'application/json');
+  toast('Zoho payload exported');
+};
+window.exportCSV = function(id){
+  const r=REQUESTS.find(x=>x.pbId===id); const q=r.quotes[r.winner];
+  const rows=[['PO','Date','Vendor','Item','Spec','Qty','Unit (R, VAT-excl)','Line total (R)','Delivery (R)','GRAND TOTAL (R)']];
+  let gt=0; r.lines.forEach((l,i)=>{ const pu=rateExcl(q,i)||0; const lt=pu*(+l.qty||0); gt+=lt;
+    rows.push([r.poNumber,today(),q.vendor.trim(),l.item,l.spec,l.qty,pu||'',lt.toFixed(2),'','']); });
+  gt+=+q.delivery||0; rows.push([r.poNumber,today(),q.vendor.trim(),'','','','','',(+q.delivery||0).toFixed(2),gt.toFixed(2)]);
+  download(r.poNumber+'.csv', rows.map(rw=>rw.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n'), 'text/csv');
+  toast('CSV exported');
+};
+window.backupAll = function(){ download('quorum-backup-'+today()+'.json', JSON.stringify(REQUESTS,null,2),'application/json'); toast('Backup exported'); };
+function download(name, content, type){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click();
+}
+function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 3400); }
+
+/* ---------- staff management (manager only) ---------- */
+views.users = async function(){
+  if(db.role!=='manager'){ go('dash'); return; }
+  const users = await pb.collection('qp_users').getFullList({ sort:'name' });
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Administration</div><h2>Staff accounts</h2>
+    <div class="sub">Who can log in, and what they see. New staff sign in with the password you set here.</div></div>
+    <button class="btn" onclick="addUser()">＋ Add staff account</button></div>
+    <div class="panel"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Venture</th><th>Status</th><th></th></tr></thead><tbody>
+    ${users.map(u=>`<tr><td><b>${esc(u.name)}</b></td><td class="num">${esc(u.email)}</td>
+      <td><span class="badge ${u.role==='manager'?'b-approved':u.role==='purchaser'?'b-pending':'b-quoting'}">${esc(u.role)}</span></td>
+      <td>${esc(u.venture||'—')}</td>
+      <td>${u.active?'<span class="badge b-approved">active</span>':'<span class="badge b-rejected">disabled</span>'}</td>
+      <td class="right" style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn small ghost" onclick="toggleUser('${u.id}', ${!u.active})">${u.active?'Disable':'Enable'}</button>
+        ${u.id!==db.user.id?`<button class="btn small reject" onclick="delUser('${u.id}')">Delete</button>`:''}
+      </td></tr>`).join('')}
+    </tbody></table></div>`;
+};
+window.addUser = function(){
+  const m=document.createElement('div'); m.className='modal-bg';
+  m.innerHTML=`<div class="modal" style="width:520px"><h3 style="font-family:var(--display);font-size:20px">Add staff account</h3>
+    <div class="msub">They sign in with this email + password.</div>
+    <div class="form" style="grid-template-columns:1fr 1fr">
+      <div class="field full"><label>Full name</label><input id="uName"></div>
+      <div class="field full"><label>Email</label><input id="uEmail" type="email"></div>
+      <div class="field"><label>Role</label><select id="uRole"><option value="requester">Requester — department</option><option value="purchaser">Purchaser — sourcing</option><option value="manager">Manager — approval</option></select></div>
+      <div class="field"><label>Venture</label><select id="uVenture"><option>All Ventures</option>${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
+      <div class="field full"><label>Temporary password</label><input id="uPass" value="" placeholder="Set a temporary password" autocomplete="new-password"></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="saveUser()">Create account</button></div></div>`;
+  document.body.appendChild(m);
+};
+window.saveUser = async function(){
+  try{
+    await pb.collection('qp_users').create({
+      name: document.getElementById('uName').value.trim(),
+      email: document.getElementById('uEmail').value.trim(),
+      password: document.getElementById('uPass').value,
+      passwordConfirm: document.getElementById('uPass').value,
+      role: document.getElementById('uRole').value,
+      venture: document.getElementById('uVenture').value, active: true
+    });
+    closeModal(); toast('Account created'); views.users();
+  }catch(e){ toast('Create failed: '+(e.message||e)); }
+};
+window.toggleUser = async function(uid, active){
+  await pb.collection('qp_users').update(uid, {active});
+  views.users();
+};
+window.delUser = async function(uid){
+  if(!confirm('Delete this staff account?')) return;
+  await pb.collection('qp_users').delete(uid);
+  toast('Account deleted'); views.users();
+};
+
+/* ---------- settings ---------- */
+views.settings = function(){
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Configuration</div><h2>Settings</h2></div></div>
+    <div class="panel"><div class="panel-h"><h3>Zoho Inventory link (Phase 2)</h3></div>
+      <div style="padding:18px">
+        <div class="form" style="grid-template-columns:1fr 1fr">
+          <div class="field"><label>Organisation ID</label><input id="zOrg" value="${esc(localStorage.getItem('qp_zoho_org')||'')}" placeholder="e.g. 7g8k9…"></div>
+          <div class="field"><label>Minimum quotes required</label><select id="qMin"><option>3</option><option>2</option></select></div>
+          <div class="field full"><label>API location</label>
+            <select id="zReg"><option value="https://www.zohoapis.com/inventory/v1">zohoapis.com (US)</option>
+            <option value="https://www.zohoapis.eu/inventory/v1">zohoapis.eu (EU)</option>
+            <option value="https://www.zohoapis.in/inventory/v1">zohoapis.in (IN)</option></select></div>
+          <div class="field full" style="color:var(--muted);font-size:12.5px">Direct push needs an OAuth token with <span class="num">ZohoInventory.purchaseorders.CREATE</span> scope. Until credentials are configured, every approved PO exports a ready payload.</div>
+        </div></div></div>
+    <div class="panel"><div class="panel-h"><h3>Data</h3></div>
+      <div style="padding:18px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn ghost" onclick="backupAll()">Export backup (JSON)</button>
+        <span style="color:var(--faint);font-size:12.5px;align-self:center">Server-backed on PocketBase · ${PB_URL}</span>
+      </div></div>`;
+  document.getElementById('zOrg').addEventListener('change',e=>localStorage.setItem('qp_zoho_org', e.target.value.trim()));
+};
+
+/* ============================== wiring ============================== */
+document.getElementById('nav').innerHTML = '';
+document.addEventListener('click', e=>{
+  const b=e.target.closest('.nav-btn'); if(b) go(b.dataset.v);
+});
+document.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && (e.target.id==='liEmail'||e.target.id==='liPass')) login();
+});
+
+async function boot(){
+  if(pb.authStore.isValid){
+    db.user = pb.authStore.record;
+    db.role = pb.authStore.record.role;
+    try { await loadRequests(); } catch(e){ console.error(e); }
+  }
+  render();
+}
+boot();</script>
+</body>
+</html>

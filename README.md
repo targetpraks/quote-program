@@ -1,20 +1,29 @@
-# Quote Program
+# Quorum (quote-program)
 
-Three-quote procurement approval for the ventures. Departments raise purchase requests, purchasers attach 3 vendor quotes (docs + line prices), the program compares vendors line-by-line with totals, and the manager approves from a dashboard. Approved requests become POs with a Zoho Inventory-ready payload.
+**Quorum** — the group purchasing desk. Departments raise purchase requests, purchasers run a 3-quote tender, managers award from a line-by-line comparison matrix, and awards become POs with a Zoho Inventory-ready payload. The SA "3 written quotations" rule, digitised with a defensible audit trail.
 
-## Flow
+- **v1** (`index.html`, repo root) — original static single-file app: localStorage persistence, role switcher, no auth. Live at <https://targetpraks.github.io/quote-program/>
+- **v2** (`v2/index.html`) — hardened PocketBase-backed build: real staff auth (requester / purchaser / manager), server-side 3-quote flip, duplicate-PO guards, VAT-normalised exports, back navigation, requester scoping.
 
-1. **Request** (department) — line items, venture, needed-by → `RQ-YYYY-NNNN`, status *Quoting*
-2. **Quotes** (purchaser) — attach 3 vendor quotes with per-line prices, delivery, lead time; status flips to *Pending approval* on the third
-3. **Approve** (manager) — approval desk shows the comparison matrix; approve any vendor (recommended = lowest total, ◆) or reject with reason
-4. **Order** (purchaser) — generate `PO-YYYY-NNNN`, export the Zoho Inventory payload (JSON) or CSV
+## v2 run instructions
 
-## Run
+v2 needs a local **PocketBase 0.40.x** backend:
 
-Static single-page app — open `index.html` or serve via GitHub Pages. Data persists in browser localStorage; Settings → Export/Import full JSON backup.
+1. Start PocketBase: `./pocketbase serve --http=127.0.0.1:8090`
+2. Create the collections: `qp_users`, `qp_requests`, `qp_quotes`, `q_vendors`, `q_catalog`, `q_outbox`, `q_notifications`, `q_budgets` (schema per the PRD; `qp_requests.audit` and `qp_quotes.prices` are JSON fields).
+3. Copy `pb_hooks/quorum.pb.js` into your server's `pb_hooks/` directory — **the `.pb.js` extension is required**; plain `.js` hook files are silently ignored (this bit us once).
+4. Open `v2/index.html` — `PB_URL` is hardcoded to `http://127.0.0.1:8090`; repoint it if your backend lives elsewhere.
 
-## Roles (v1)
+**GitHub Pages caveat:** the Pages-hosted v2 page renders, but it cannot reach a backend from the public site — `PB_URL` points at localhost **by design** (this desk is tailnet/internal-only; there is no public ingress). Run v2 locally against your own PocketBase for a working app.
 
-Role switcher, no auth: **Manager** (approval desk) · **Purchaser** (sourcing + PO generation) · **Requester** (department).
+## Server-side enforcement (`pb_hooks/quorum.pb.js`)
 
-Zoho direct push (OAuth, purchase-order scope) is Phase 2 — payloads are export-ready now.
+- **Quote attached** → audit entry appended to the parent request + automatic flip to *pending approval* on the 3rd quote (the client no longer writes this — single writer, no lost-update races).
+- **Duplicate-PO guards** → creating an outbox row with an existing PO number, or assigning a `po_number` already held by another request, both fail with a 400.
+- **Cliq notify (optional)** → on outbox create, a Zoho Cliq DM fires via env vars `QUORUM_CLIQ_MCP_URL` / `QUORUM_CLIQ_NOTIFY_EMAIL`. This repo copy is **sanitized** (no endpoint baked in); if the env vars are unset the notify step is skipped silently — guards and the flip still run.
+
+Known JSVM gotchas encoded in the hook file: module-level `function` declarations are NOT visible inside hook callbacks (inline helpers), and JSON record fields marshal as per-character arrays via `record.get()` (read via `getString()` + `JSON.parse`).
+
+## Zoho Inventory
+
+Direct push (OAuth, `purchaseorders.CREATE` scope) is Phase 2. Until then every approved PO exports a paste-ready payload — the **Zoho JSON** button, the **CSV** export, and the server-side `q_outbox` push queue all carry VAT-exclusive line rates (VAT-inclusive quotes are normalised ÷1.15 and rounded to 2dp).
