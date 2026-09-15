@@ -169,8 +169,8 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
 <script>
 /* ============================== state ============================== */
 const PB_URL = 'http://127.0.0.1:8090';
-const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const pb = new PocketBase(PB_URL);
+const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const VENTURES = ['Infinity Brands','The Local Farmer','Papa Pasta','INFX Media','INFX Solutions','INFX Labs','FluxFlow','ACDC Express'];
 const DEPTS = ['Operations','Purchasing','Sales & Marketing','Finance','Production','Logistics','Admin','IT'];
 const money = n => 'R ' + (Math.round((+n||0)*100)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -664,39 +664,78 @@ views.orders = function(){
     : `<div class="panel"><div class="empty" style="padding:44px"><div style="font-family:var(--display);font-size:17px;margin-bottom:6px">${all.length?'No POs match this filter':'No orders yet'}</div><div style="color:var(--muted)">${all.length?'Clear the brand/requester filter to see all purchase orders.':'Approve a request on the desk — it becomes a purchase order here.'}</div></div></div>`}`;
 };
 
-/* ---------- vendors (v2) ---------- */
+/* ---------- vendors (v2) — brand-tagged ---------- */
+let VND_FILTER = 'All';
+let VND_CACHE = [];
+function vndBrands(v){ // normalise brands JSON field
+  const b = v && v.brands;
+  if(Array.isArray(b)) return b.filter(Boolean);
+  if(typeof b === 'string'){ try{ const p=JSON.parse(b); return Array.isArray(p)?p.filter(Boolean):[]; }catch(e){ return []; } }
+  return [];
+}
+function vndBrandOptions(v, selected){
+  return VENTURES.map(b=>`<option value="${esc(b)}"${(selected||[]).includes(b)?' selected':''}>${esc(b)}</option>`).join('');
+}
+function vndBrandSelect(selected, size){
+  return `<select class="vb" multiple size="${size||4}" style="width:100%">${vndBrandOptions(null, selected)}</select>`;
+}
+function vndBrandsHtml(v){
+  const bs = vndBrands(v);
+  return bs.length ? bs.map(b=>`<span class="venture">${esc(b)}</span>`).join('<span style="color:var(--faint)"> · </span>')
+    : '<span style="color:var(--faint);font-size:12px">untagged</span>';
+}
 views.vendors = async function(){
   const vendors = await pb.collection('q_vendors').getFullList().catch(()=>[]);
+  VND_CACHE = vendors;
+  const tabs = ['All', ...VENTURES];
+  if(!tabs.includes(VND_FILTER)) VND_FILTER = 'All';
+  const filtered = VND_FILTER==='All' ? vendors : vendors.filter(v=>vndBrands(v).includes(VND_FILTER));
+  const countFor = v => v==='All' ? vendors.length : vendors.filter(x=>vndBrands(x).includes(v)).length;
+  const canEdit = db.role==='manager' || db.role==='purchaser';
+  const canDel = db.role==='manager';
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Master data</div><h2>Vendors</h2>
-    <div class="sub">Invite-ready suppliers. Tax clearance expiry is tracked — expired clearance blocks awards over R50k.</div></div>
-    ${db.role==='manager'||db.role==='purchaser'?`<button class="btn" onclick="addVendor()">＋ Add vendor</button>`:''}</div>
-    <div class="panel"><table><thead><tr><th>Vendor</th><th>Contact</th><th>Terms</th><th>VAT no.</th><th>Tax clearance</th><th>Flags</th><th></th></tr></thead><tbody>
-    ${vendors.map(v=>{
+    <div class="sub">Invite-ready suppliers, tagged by brand — filter to a brand to see who supplies it. Tax clearance expiry is tracked; expired clearance blocks awards over R50k.</div></div>
+    ${canEdit?`<button class="btn" onclick="addVendor()">＋ Add vendor</button>`:''}</div>
+    <div class="chipbar" id="vndChips">
+      ${tabs.map(b=>`<button class="chip ${VND_FILTER===b?'active':''}" data-v="${esc(b)}" onclick="setVendorFilter(this.dataset.v)">${esc(b)}${countFor(b)?`<span class="count">${countFor(b)}</span>`:''}</button>`).join('')}
+    </div>
+    <div class="panel"><table><thead><tr><th>Vendor</th><th>Brands</th><th>Contact</th><th>Terms</th><th>Tax clearance</th><th>Flags</th><th></th></tr></thead><tbody>
+    ${filtered.map(v=>{
       const exp=v.tax_clearance_expiry? new Date(v.tax_clearance_expiry) : null;
       const expSoon = exp && (exp-new Date())<90*86400000;
       const expOut = exp && exp<new Date();
-      return `<tr><td><b>${esc(v.name)}</b>${v.related_party?'<div class="venture" style="color:var(--amber)">related party</div>':''}</td>
+      return `<tr><td><b>${esc(v.name)}</b><div style="color:var(--faint);font-size:12px">VAT ${esc(v.vat_number||'—')}</div>${v.related_party?'<div class="venture" style="color:var(--amber)">related party</div>':''}</td>
+      <td>${vndBrandsHtml(v)}</td>
       <td class="num">${esc(v.contact_email||'—')}<div style="color:var(--faint);font-size:12px">${esc(v.contact_phone||'')}</div></td>
       <td class="num">${esc(v.payment_terms||'—')}</td>
-      <td class="num">${esc(v.vat_number||'—')}</td>
       <td class="num">${exp? new Date(exp).toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'}) : '—'} ${expOut?'<span class="badge b-rejected">expired</span>':expSoon?'<span class="badge b-quoting">renew soon</span>':''}</td>
       <td>${v.blacklisted?'<span class="badge b-rejected">blacklisted</span>':'<span class="badge b-approved">ok</span>'}</td>
-      <td class="right" style="display:flex;gap:6px;justify-content:flex-end">
-        <button class="btn small ghost" onclick="toggleVendor('${v.id}', ${!v.blacklisted})">${v.blacklisted?'Unblock':'Blacklist'}</button>
+      <td class="right" style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+        ${canEdit?`<button class="btn small ghost" onclick="editVendorBrands('${v.id}')">Brands</button>`:''}
+        ${canEdit?`<button class="btn small ghost" onclick="toggleVendor('${v.id}', ${!v.blacklisted})">${v.blacklisted?'Unblock':'Blacklist'}</button>`:''}
+        ${canDel?`<button class="btn small reject" onclick="delVendor('${v.id}')">Remove</button>`:''}
       </td></tr>`;}).join('')}
+    ${filtered.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">No vendors tagged to this brand yet — tag one, or add a new vendor.</div></td></tr>`}
     </tbody></table></div>`;
 };
+window.setVendorFilter = function(v){ VND_FILTER=v; views.vendors(); };
 window.toggleVendor = async function(vid, blacklisted){
   await pb.collection('q_vendors').update(vid, {blacklisted});
   toast(blacklisted?'Vendor blacklisted — cannot be invited':'Vendor unblocked'); views.vendors();
 };
+window.delVendor = async function(vid){
+  if(!confirm('Remove this vendor from master data?')) return;
+  try{ await pb.collection('q_vendors').delete(vid); toast('Vendor removed'); views.vendors(); }
+  catch(e){ toast('Remove failed: '+(e.message||e)); }
+};
 window.addVendor = function(){
   const m=document.createElement('div'); m.className='modal-bg';
-  m.innerHTML=`<div class="modal" style="width:540px"><h3 style="font-family:var(--display);font-size:20px">Add vendor</h3>
-    <div class="msub">Invite-ready minimal fields — never store banking details here (Zoho Books owns those).</div>
+  m.innerHTML=`<div class="modal" style="width:560px"><h3 style="font-family:var(--display);font-size:20px">Add vendor</h3>
+    <div class="msub">Invite-ready minimal fields — never store banking details here (Zoho Books owns those). Tag the brands this vendor supplies.</div>
     <div class="form" style="grid-template-columns:1fr 1fr">
       <div class="field full"><label>Name</label><input id="vName"></div>
+      <div class="field full"><label>Brands supplied <span style="color:var(--faint);font-weight:400">(shift-click for multiple)</span></label>${vndBrandSelect([], 4)}</div>
       <div class="field"><label>Contact email</label><input id="vEmail"></div>
       <div class="field"><label>Phone</label><input id="vPhone"></div>
       <div class="field"><label>Payment terms</label><input id="vTerms" value="30 days"></div>
@@ -710,17 +749,39 @@ window.addVendor = function(){
   document.body.appendChild(m);
 };
 window.saveVendor = async function(){
+  const brands=[...document.querySelectorAll('.vb option:checked')].map(o=>o.value);
   try{
     await pb.collection('q_vendors').create({
       name: document.getElementById('vName').value.trim(), contact_email: document.getElementById('vEmail').value.trim(),
       contact_phone: document.getElementById('vPhone').value.trim(), payment_terms: document.getElementById('vTerms').value.trim(),
       vat_number: document.getElementById('vVat').value.trim(),
+      brands,
       tax_clearance_expiry: document.getElementById('vExp').value ? document.getElementById('vExp').value+' 00:00:00.000Z' : null,
       related_party: document.getElementById('vRP').value==='yes',
       related_party_note: document.getElementById('vRP').value==='yes' ? 'Owner-linked entity — disclosed' : ''
     });
-    closeModal(); toast('Vendor added'); views.vendors();
+    closeModal(); toast('Vendor added'+(brands.length?` — ${brands.join(', ')}`:'')); views.vendors();
   }catch(e){ toast('Create failed: '+(e.message||e)); }
+};
+window.editVendorBrands = function(vid){
+  const v=VND_CACHE.find(x=>x.id===vid); if(!v) return;
+  const m=document.createElement('div'); m.className='modal-bg';
+  m.innerHTML=`<div class="modal" style="width:520px"><h3 style="font-family:var(--display);font-size:20px">Tag brands — ${esc(v.name)}</h3>
+    <div class="msub">Which brands does this vendor supply? Shift-click for multiple. Untagged vendors stay visible under every filter.</div>
+    <div class="form" style="grid-template-columns:1fr">
+      <div class="field"><label>Brands supplied</label>${vndBrandSelect(vndBrands(v), 6)}</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="saveVendorBrands('${vid}')">Save brands</button></div></div>`;
+  document.body.appendChild(m);
+};
+window.saveVendorBrands = async function(vid){
+  const brands=[...document.querySelectorAll('.vb option:checked')].map(o=>o.value);
+  try{
+    await pb.collection('q_vendors').update(vid, {brands});
+    closeModal(); toast(brands.length?('Tagged: '+brands.join(', ')):'Brands cleared'); views.vendors();
+  }catch(e){ toast('Save failed: '+(e.message||e)); }
 };
 
 /* ---------- catalog (v2) — entity-scoped ---------- */
@@ -938,7 +999,8 @@ window.addQuote = function(id){
   m.innerHTML=`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">Attach vendor quote</h3>
     <div class="msub">Quote ${r.quotes.length+1} of 3 — upload the vendor document and capture line prices.</div>
     <div class="form">
-      <div class="field full"><label>Vendor name</label><input id="qVendor" placeholder="Vendor name"></div>
+      <div class="field full"><label>Vendor name</label><input id="qVendor" placeholder="Vendor name" list="qVendorList" autocomplete="off"><datalist id="qVendorList"></datalist>
+      <div id="qVendorHint" style="color:var(--faint);font-size:11.5px;margin-top:4px"></div></div>
       <div class="field full"><label>Quote document (PDF / image)</label><input type="file" id="qDoc" accept=".pdf,image/*"></div>
       <div class="field"><label>Delivery cost (R)</label><input type="number" id="qDel" value="0" min="0"></div>
       <div class="field"><label>Lead time (days)</label><input type="number" id="qLead" value="3" min="0"></div>
@@ -952,6 +1014,18 @@ window.addQuote = function(id){
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn" onclick="saveQuote('${id}')">Save quote</button></div></div>`;
   document.body.appendChild(m);
+  loadVendorSuggest(r.venture);
+};
+window.loadVendorSuggest = async function(venture){
+  const dl = document.getElementById('qVendorList'); if(!dl) return;
+  try{
+    const vs = (VND_CACHE && VND_CACHE.length) ? VND_CACHE : await pb.collection('q_vendors').getFullList();
+    if(!VND_CACHE.length) VND_CACHE = vs;
+    const rel = vs.filter(v=>!v.blacklisted && (vndBrands(v).length===0 || vndBrands(v).includes(venture)));
+    dl.innerHTML = rel.map(v=>`<option value="${esc(v.name)}">${vndBrands(v).length?esc(vndBrands(v).join(' · ')):'group-wide'}</option>`).join('');
+    const hint = document.getElementById('qVendorHint');
+    if(hint) hint.textContent = rel.length ? `${rel.length} vendor${rel.length===1?'':'s'} tagged to ${venture} (or group-wide) — start typing or pick one.` : `No vendors tagged to ${venture} yet — type the name, then tag it under Vendors.`;
+  }catch(e){}
 };
 window.saveQuote = async function(id){
   const r=REQUESTS.find(x=>x.pbId===id); if(!r) return;

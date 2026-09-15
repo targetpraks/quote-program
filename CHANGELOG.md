@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.4.0 — 2026-09-15 (vendors tagged by brand + brand filter)
+
+### Added
+- **Vendors are tagged by brand.** `q_vendors` gains a `brands` field (JSON array). A vendor can supply several brands (e.g. Kitchenline CC → Infinity Brands + Papa Pasta); vendors with no tags stay group-wide and appear under every filter.
+- **Brand filter chips on the Vendors page.** All / one chip per entity with live counts — click a brand to see exactly who supplies it. Matches the catalog chip design language.
+- **Tagging in the UI.** *Add vendor* now captures Brands supplied (multi-select); existing vendors get a *Brands* button on each row to tag/untag at any time (manager + purchaser; Remove stays manager-only).
+- **Brand-aware vendor suggestions in the quote form.** When a buyer attaches a quote, the vendor name field now suggests only vendors tagged to that request's brand (+ group-wide), with a hint line showing the count — the buyer no longer retypes names or picks from the whole list.
+
+### Notes
+- Schema: one new field `q_vendors.brands` (migration `1789481500_updated_q_vendors.js`); REST rules unchanged.
+- Existing vendors were backfilled from their quote history: Caterwise → Papa Pasta; Kitchenline CC + ProResto → Infinity Brands, Papa Pasta; Mushroom Guru → The Local Farmer; Maio Holdings left group-wide.
+- Row actions are role-gated: Brands/Blacklist = manager + purchaser, Remove = manager. (Previously the Blacklist button showed for every role, including requesters who can't write.)
+- Empty state on a brand with no tagged vendors: "No vendors tagged to this brand yet — tag one, or add a new vendor."
+- Verified end-to-end (manager + purchaser + requester roles): chip filtering per brand, tag save/revert server-side, vendor create with brands, row delete gate, quote-form suggestions for Papa Pasta & The Local Farmer, empty states.
+
 ## v2.3.0 — 2026-09-15 (role spaces — each desk gets its own workspace)
 
 ### Added
