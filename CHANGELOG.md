@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.1.0 — 2026-09-15 (entity-scoped catalog + manager capture)
+
+### Added
+- **Entity-scoped item catalog.** `q_catalog` gains a `venture` field; every item now belongs to an entity. The catalog page shows filter chips (All / one per entity) with per-entity counts, and the table carries an Entity column. Items without a venture remain group-wide and appear under every filter.
+- **Catalog CRUD in the UI.** Add item (manager + purchaser) codes new items directly to the selected entity's list; Remove (manager) deletes. Entity, unit, spec, GL code/group and est. price capture. Server-side rules unchanged: create = manager/purchaser, delete = manager.
+- **Entity-aware request lines.** The new-purchase-request form filters the item suggestion list by the selected venture — requesters pick from their entity's inventory (a hint shows the list size per entity). Free-text lines still allowed.
+
+### Fixed
+- **Manager can capture quotes and raise POs** (buyer-perspective gap): managers now see *Add quote* while a request is quoting, and *Generate PO* once approved — previously these were purchaser-only and looked like missing permissions when signed in as manager.
+
+### Notes
+- Items without a `venture` value show as `—` and are treated as group-wide (visible under every chip).
+- Requires the `q_catalog.venture` migration (`1789469400_updated_q_catalog.js` in the local PocketBase) — the published static app expects the field to exist when saving items.
+
 ## Consolidation — 2026-09-15 (single app)
 
 - One version: the hardened build is now `index.html` at the repo root (moved from `v2/index.html`). The original static v1 build was removed from the tree — recoverable in git history (commit `0aa8538`).

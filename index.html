@@ -78,6 +78,15 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 .b-rejected{background:var(--red-soft);color:var(--red)}
 .b-ordered{background:rgba(90,140,220,.14);color:#7EA6E8}
 .venture{font:600 11px var(--mono);color:var(--muted);letter-spacing:.04em}
+/* catalog entity filters */
+.chipbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 16px}
+.chip{background:var(--panel);border:1px solid var(--rule-soft);color:var(--muted);font:600 12.5px var(--body);padding:7px 13px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.chip:hover{color:var(--ink);border-color:var(--rule)}
+.chip.active{background:var(--gold-soft);border-color:var(--gold);color:var(--ink)}
+.chip .count{font-family:var(--mono);font-size:11px;color:var(--gold)}
+.chip.search{cursor:text;padding:5px 13px}
+.chip.search input{background:none;border:0;outline:none;color:var(--ink);font:500 12.5px var(--body);width:200px}
+.chip.search input::placeholder{color:var(--faint)}
 /* request detail */
 .crumbs{display:flex;align-items:center;gap:8px;color:var(--faint);font-size:12.5px;margin-bottom:14px;cursor:pointer}
 .crumbs b{color:var(--muted)}
@@ -156,9 +165,9 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
 <script>
 /* ============================== state ============================== */
 const PB_URL = 'http://127.0.0.1:8090';
-const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const pb = new PocketBase(PB_URL);
 const VENTURES = ['Infinity Brands','The Local Farmer','Papa Pasta','INFX Media','INFX Solutions','INFX Labs','FluxFlow','ACDC Express'];
+const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const DEPTS = ['Operations','Purchasing','Sales & Marketing','Finance','Production','Logistics','Admin','IT'];
 const money = n => 'R ' + (Math.round((+n||0)*100)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toISOString().slice(0,10);
@@ -457,7 +466,7 @@ views.detail = function(){
 
   const actions = [];
   if(r.status==='pending' && isMgr) actions.push(`<button class="btn reject" onclick="rejectReq()">Reject request…</button>`);
-  if(r.status==='approved' && isPurch) actions.push(`<button class="btn" onclick="makePO(${r.winner})">Generate PO for ${esc(r.quotes[r.winner].vendor.trim())}</button>`);
+  if(r.status==='approved' && (isPurch||isMgr)) actions.push(`<button class="btn" onclick="makePO(${r.winner})">Generate PO for ${esc(r.quotes[r.winner].vendor.trim())}</button>`);
   if(r.poNumber) actions.push(`<button class="btn ghost" onclick="exportZoho('${r.pbId}')">Export Zoho payload</button>`);
   if(r.poNumber) actions.push(`<button class="btn ghost" onclick="exportCSV('${r.pbId}')">PO CSV</button>`);
 
@@ -480,7 +489,7 @@ views.detail = function(){
           <table><tbody>${r.lines.map(l=>`<tr><td><b>${esc(l.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(l.spec||'')}</div></td><td class="num right">× ${esc(l.qty)}</td></tr>`).join('')}</tbody></table></div>
         <div class="panel"><div class="panel-h"><h3>Vendor quotes</h3><span class="hint">${r.quotes.length}/3${r.status==='quoting'?' — need 3 to submit for approval':''}</span></div>
           <div style="padding:14px" class="quote-cols">${r.quotes.map((q,vi)=>qcardMini(r,vi)).join('')}
-          ${r.quotes.length<3 && (isPurch||db.role==='requester')?`<button class="btn small ghost" onclick="addQuote('${r.pbId}')">＋ Add quote</button>`:''}</div></div>
+          ${r.quotes.length<3 && (isPurch||isMgr||db.role==='requester')?`<button class="btn small ghost" onclick="addQuote('${r.pbId}')">＋ Add quote</button>`:''}</div></div>
       </div>
     </div>`;
 };
@@ -568,17 +577,76 @@ window.saveVendor = async function(){
   }catch(e){ toast('Create failed: '+(e.message||e)); }
 };
 
-/* ---------- catalog (v2) ---------- */
+/* ---------- catalog (v2) — entity-scoped ---------- */
+let CAT_FILTER = 'All';
+let CAT_CACHE = [];
 views.catalog = async function(){
   const items = await pb.collection('q_catalog').getFullList().catch(()=>[]);
+  CAT_CACHE = items;
+  // all defined ventures, plus any other entities present in the data (safety)
+  const owned = [...new Set(items.map(i=>i.venture).filter(Boolean))];
+  const tabs = ['All', ...new Set([...VENTURES, ...owned])];
+  if(!tabs.includes(CAT_FILTER)) CAT_FILTER = 'All';
+  const filtered = CAT_FILTER==='All' ? items : items.filter(i=>i.venture===CAT_FILTER);
+  const countFor = v => v==='All' ? items.length : items.filter(i=>i.venture===v).length;
+  const canEdit = db.role==='manager' || db.role==='purchaser';
+  const canDel = db.role==='manager';
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Master data</div><h2>Item catalog</h2>
-    <div class="sub">GL-coded items with estimates — requesters pick, prices default, spend reports mirror the P&L.</div></div></div>
-    <div class="panel"><table><thead><tr><th>Item</th><th>Unit</th><th>GL code</th><th>GL group</th><th class="right">Est. price (VAT-excl)</th></tr></thead><tbody>
-    ${items.map(i=>`<tr><td><b>${esc(i.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(i.default_spec||'')}</div></td>
+    <div class="sub">Each entity keeps its own inventory list — filter by entity, then pick items. GL coding stays group-wide so spend still reconciles to the P&amp;L.</div></div>
+    ${canEdit?`<button class="btn" onclick="addCatalogItem()">＋ Add item</button>`:''}</div>
+    <div class="chipbar" id="catChips">
+      ${tabs.map(v=>`<button class="chip ${CAT_FILTER===v?'active':''}" data-v="${esc(v)}" onclick="setCatalogFilter(this.dataset.v)">${esc(v)}${countFor(v)?`<span class="count">${countFor(v)}</span>`:''}</button>`).join('')}
+    </div>
+    <div class="panel"><table><thead><tr><th>Item</th><th>Entity</th><th>Unit</th><th>GL code</th><th>GL group</th><th class="right">Est. price (VAT-excl)</th>${canDel?'<th></th>':''}</tr></thead><tbody>
+    ${filtered.map(i=>`<tr><td><b>${esc(i.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(i.default_spec||'')}</div></td>
+      <td><span class="venture">${esc(i.venture||'—')}</span></td>
       <td class="num">${esc(i.unit||'—')}</td><td class="num">${esc(i.gl_code)}</td><td>${esc(i.gl_group||'')}</td>
-      <td class="num right">${money(i.est_price)}</td></tr>`).join('')}
+      <td class="num right">${money(i.est_price)}</td>
+      ${canDel?`<td class="right"><button class="btn small ghost" onclick="delCatalogItem('${i.id}')">Remove</button></td>`:''}</tr>`).join('')}
+    ${filtered.length?'':`<tr><td colspan="${canDel?7:6}"><div class="empty" style="padding:30px">No items for this entity yet.</div></td></tr>`}
     </tbody></table></div>`;
+};
+window.setCatalogFilter = function(v){ CAT_FILTER=v; views.catalog(); };
+window.addCatalogItem = function(){
+  const m=document.createElement('div'); m.className='modal-bg';
+  const cur = CAT_FILTER!=='All' ? CAT_FILTER : VENTURES[0];
+  m.innerHTML=`<div class="modal" style="width:560px"><h3 style="font-family:var(--display);font-size:20px">Add catalog item</h3>
+    <div class="msub">Codes items per entity — each venture's inventory list stays separate; GL coding stays shared.</div>
+    <div class="form" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label>Entity</label><select id="ciVenture">${VENTURES.map(v=>`<option ${v===cur?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="field"><label>Unit</label><input id="ciUnit" placeholder="each / kg / bag"></div>
+      <div class="field full"><label>Item</label><input id="ciItem" placeholder="Item name"></div>
+      <div class="field full"><label>Default spec</label><input id="ciSpec" placeholder="Size, grade, material…"></div>
+      <div class="field"><label>GL code</label><input id="ciGl" placeholder="GL-EQP-001"></div>
+      <div class="field"><label>GL group</label><input id="ciGrp" placeholder="Equipment / Raw materials…"></div>
+      <div class="field"><label>Est. price (R, VAT-excl)</label><input type="number" step="0.01" id="ciPrice" placeholder="0.00"></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="saveCatalogItem()">Add item</button></div></div>`;
+  document.body.appendChild(m);
+};
+window.saveCatalogItem = async function(){
+  const rec = {
+    item: document.getElementById('ciItem').value.trim(),
+    venture: document.getElementById('ciVenture').value,
+    default_spec: document.getElementById('ciSpec').value.trim(),
+    unit: document.getElementById('ciUnit').value.trim(),
+    gl_code: document.getElementById('ciGl').value.trim(),
+    gl_group: document.getElementById('ciGrp').value.trim(),
+    est_price: +document.getElementById('ciPrice').value||0, active:true
+  };
+  if(!rec.item || !rec.gl_code){ toast('Item name and GL code are required'); return; }
+  try{
+    await pb.collection('q_catalog').create(rec);
+    closeModal(); CAT_FILTER = rec.venture; views.catalog(); toast('Item added to '+rec.venture);
+  }catch(e){ toast('Create failed: '+(e.message||e)); }
+};
+window.delCatalogItem = async function(id){
+  if(!confirm('Remove this item from the catalog?')) return;
+  try{ await pb.collection('q_catalog').delete(id); views.catalog(); toast('Item removed'); }
+  catch(e){ toast('Delete failed: '+(e.message||e)); }
 };
 
 /* ---------- notifications (v2) ---------- */
@@ -646,14 +714,14 @@ window.openNew = function(){
   m.innerHTML=`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">New purchase request</h3>
     <div class="msub">What does the department need? Purchasing will source three quotes.</div>
     <div class="form">
-      <div class="field"><label>Venture</label><select id="nVenture">${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
+      <div class="field"><label>Venture</label><select id="nVenture" onchange="refreshNewItems()">${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
       <div class="field"><label>Department</label><select id="nDept">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>
       <div class="field"><label>Needed by</label><input type="date" id="nNeeded" value="${today()}"></div>
       <div class="field"><label>Requested by</label><input id="nReq" value="${esc(db.user.name)}" readonly></div>
       <div class="field full"><label>Notes</label><textarea id="nNotes" rows="2" placeholder="Context the approver should have"></textarea></div>
-      <div class="field full"><label>Line items</label>
+      <div class="field full"><label>Line items <span id="nItemHint" style="color:var(--faint);font-weight:400"></span></label>
         <div class="lines-box"><table id="nLines"><tbody>
-          <tr><td><input placeholder="Item" class="li"></td><td><input placeholder="Spec (optional)" class="ls"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1"></td></tr>
+          <tr><td><input placeholder="Item" class="li" list="itemList"></td><td><input placeholder="Spec (optional)" class="ls"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1"></td></tr>
         </tbody></table></div>
         <button class="addline" onclick="addLine()">＋ Add line</button></div>
     </div>
@@ -661,13 +729,28 @@ window.openNew = function(){
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn" onclick="submitReq()">Submit request</button></div></div>`;
   document.body.appendChild(m);
+  refreshNewItems();
 };
 window.addLine = function(){
   const tb=document.querySelector('#nLines tbody'); const tr=document.createElement('tr');
-  tr.innerHTML=`<td><input placeholder="Item" class="li"></td><td><input placeholder="Spec (optional)" class="ls"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1"></td>`;
+  tr.innerHTML=`<td><input placeholder="Item" class="li" list="itemList"></td><td><input placeholder="Spec (optional)" class="ls"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1"></td>`;
   tb.appendChild(tr); tr.querySelector('input').focus();
 };
 window.closeModal = () => document.querySelectorAll('.modal-bg').forEach(m=>m.remove());
+/* entity-scoped item suggestions for the new-request form */
+window.refreshNewItems = async function(){
+  const vEl = document.getElementById('nVenture'); if(!vEl) return;
+  const v = vEl.value;
+  let items = CAT_CACHE;
+  if(!items.length){ items = await pb.collection('q_catalog').getFullList().catch(()=>[]); CAT_CACHE = items; }
+  const list = items.filter(i=>i.active!==false && (!v || !i.venture || i.venture===v));
+  let dl = document.getElementById('itemList');
+  if(!dl){ dl=document.createElement('datalist'); dl.id='itemList'; document.body.appendChild(dl); }
+  dl.innerHTML = list.map(i=>`<option value="${esc(i.item)}">${esc(i.default_spec||'')} · ${esc(i.gl_group||'')} · R${i.est_price!=null?i.est_price:''}</option>`).join('');
+  const hint = document.getElementById('nItemHint');
+  if(hint) hint.textContent = `${list.length} item${list.length===1?'':'s'} in ${v||'the group'} list`;
+  return list;
+};
 window.submitReq = async function(){
   const lines=[...document.querySelector('#nLines tbody').rows].map(tr=>({
     item:tr.querySelector('.li').value.trim(), spec:tr.querySelector('.ls').value.trim(), qty:tr.querySelector('.lq').value.trim()||'1'
@@ -807,7 +890,7 @@ window.makePO = async function(wi){
     });
     // notification
     await pb.collection('q_notifications').create({
-      user_email: OWNER_EMAIL, kind:'po', title:po+' generated',
+      user_email:OWNER_EMAIL, kind:'po', title:po+' generated',
       body:r.id+' awarded to '+q.vendor.trim()
     }).catch(ne=>{ console.warn('notif skipped:', ne.message); });
     await loadRequests(); go('orders'); toast(po+' generated — queued for Zoho');
