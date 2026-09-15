@@ -1,5 +1,10 @@
 # Changelog
 
+## Consolidation — 2026-09-15 (single app)
+
+- One version: the hardened build is now `index.html` at the repo root (moved from `v2/index.html`). The original static v1 build was removed from the tree — recoverable in git history (commit `0aa8538`).
+- One URL: <https://targetpraks.github.io/quote-program/> serves the app; the `/v2/` path is gone.
+
 ## v2.0.0 — 2026-09-15 (Quorum hardening)
 
 Product name ratified as **Quorum**; repo stays `quote-program`.
