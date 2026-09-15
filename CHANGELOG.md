@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.3.0 — 2026-09-15 (role spaces — each desk gets its own workspace)
+
+### Added
+- **Requester workspace — *My requests*.** A requester now lands on a dedicated home: every request they raised, end to end (sourcing → approval → PO), with live counters (in sourcing / awaiting approval / approved-ordered / POs issued), status chips, and Brand + Department filter dropdowns. A *How it works* panel explains the flow. Previously requesters landed on an approval-style dashboard built for managers.
+- **Buyer workspace — *Buyer desk*.** The purchaser's *Pipeline* is replaced by an active workspace: counters by stage (to source / awaiting approval / approved — raise the PO / ordered), stage-named status chips, and **Brand + Requester filter dropdowns**. Row actions are stage-aware — *Attach 3 quotes* / *Capture quote n/3* → *Awaiting approval* → *Review & raise PO* → *Open*. The approved-with-PO-outstanding queue is a first-class view (chip *Ready to order*).
+- **Manager — *After your approval* panel** on the approval desk: approved requests awaiting a PO (ref, awarded vendor, total) plus a recent ordered/rejected strip — the manager can see the hand-off continue after they sign.
+- **Purchase-order register filters** — Brand + Requester dropdowns, plus stat cards (PO count, committed spend, brands ordering) that respect the filter.
+
+### Changed
+- Every role now lands on **its own home view** on sign-in: manager → approval desk, purchaser → buyer desk, requester → my requests. Previously all roles landed on the same dashboard.
+- Navigation is role-shaped: *All requests* and *Alerts* hide for requesters; the *Pipeline* item is gone (superseded by *Buyer desk*).
+- Chip-bar helper generalised (`chipsHtml`) so each space renders its own status vocabulary and handler.
+
+### Notes
+- No schema change — ships on the existing PocketBase collections.
+- Verified end-to-end against the live server with all three roles (requester Nadia + Thabo, buyer, manager): home views, chips, brand/requester filters, stage-aware buttons, approve → *Generate PO* hand-off, and requester order scoping.
+
 ## v2.2.0 — 2026-09-15 (status filters on the registers)
 
 ### Added

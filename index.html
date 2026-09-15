@@ -87,6 +87,10 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 .chip.search{cursor:text;padding:5px 13px}
 .chip.search input{background:none;border:0;outline:none;color:var(--ink);font:500 12.5px var(--body);width:200px}
 .chip.search input::placeholder{color:var(--faint)}
+.chip.select-pill{gap:4px}
+.chip select{background:transparent;border:0;outline:none;color:var(--ink);font:600 12.5px var(--body);max-width:170px}
+.chip select option{background:var(--panel2);color:var(--ink)}
+.chipbar.sub{margin-top:-8px}
 /* request detail */
 .crumbs{display:flex;align-items:center;gap:8px;color:var(--faint);font-size:12.5px;margin-bottom:14px;cursor:pointer}
 .crumbs b{color:var(--muted)}
@@ -165,9 +169,9 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
 <script>
 /* ============================== state ============================== */
 const PB_URL = 'http://127.0.0.1:8090';
+const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const pb = new PocketBase(PB_URL);
 const VENTURES = ['Infinity Brands','The Local Farmer','Papa Pasta','INFX Media','INFX Solutions','INFX Labs','FluxFlow','ACDC Express'];
-const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const DEPTS = ['Operations','Purchasing','Sales & Marketing','Finance','Production','Logistics','Admin','IT'];
 const money = n => 'R ' + (Math.round((+n||0)*100)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toISOString().slice(0,10);
@@ -277,14 +281,16 @@ function audit(r, actor, action, note){
 }
 function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 3200); }
 const who = () => db.user ? db.user.name : '';
-function backLabel(){ const m={dash: db.role==='manager'?'Approval desk':'Dashboard', requests:'All requests', quotes:'Pipeline', orders:'Purchase orders', vendors:'Vendors', catalog:'Catalog', notifications:'Alerts', users:'Staff', settings:'Settings'}; return m[db.prev||'dash']||'Back to list'; }
+/* every role lands on its own workspace */
+const homeView = role => role==='manager' ? 'dash' : role==='purchaser' ? 'buyerdesk' : 'myreq';
+function backLabel(){ const m={dash:'Approval desk', buyerdesk:'Buyer desk', myreq:'My requests', requests:'All requests', vendors:'Vendors', catalog:'Catalog', notifications:'Alerts', users:'Staff', orders:'Purchase orders', settings:'Settings'}; return m[db.prev||homeView(db.role)]||'Back to list'; }
 
 /* ============================== views ============================== */
 const views = {};
 function go(view, id){
   if(view==='detail' && db.view && db.view!=='detail') db.prev=db.view;
   // status filter: persists across detail round-trips, resets when switching between register views
-  if(['requests','quotes'].includes(view) && db.view && db.view!=='detail' && view!==db.view) REQ_FILTER='All';
+  if(view==='requests' && db.view && db.view!=='detail' && view!==db.view) REQ_FILTER='All';
   db.view=view; db.viewId=id||null; save(); render(); }
 function render(){
   const mainEl = main();
@@ -297,9 +303,10 @@ function render(){
   }
   const role = db.role;
   const navDef = [
-    role==='manager'  && ['dash','◈ Approval desk'],
-    ['requests','All requests'],
-    role==='purchaser' && ['quotes','Pipeline'],
+    role==='manager'   && ['dash','◈ Approval desk'],
+    role==='purchaser' && ['buyerdesk','◈ Buyer desk'],
+    role==='requester' && ['myreq','◈ My requests'],
+    role!=='requester' && ['requests','All requests'],
     ['vendors','Vendors'],
     ['catalog','Catalog'],
     role!=='requester' && ['notifications','Alerts'],
@@ -311,10 +318,10 @@ function render(){
     `<button class="nav-btn" data-v="${v}">${l}<span class="count"></span></button>`).join('');
   document.getElementById('rolebox').innerHTML = userHTML();
   document.getElementById('btn-logout').addEventListener('click', logout);
-  const v = db.view||'dash';
+  const v = db.view||homeView(role);
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.v===v));
   counts();
-  const viewFn = views[v==='detail'?'detail':v]||views.dash;
+  const viewFn = views[v==='detail'?'detail':v]||views[homeView(role)]||views.dash;
   const out = viewFn();
   if(out instanceof Promise) out.catch(err=>{ console.error(err); toast('Load failed: '+(err.message||err)); });
   window.scrollTo({top:0});
@@ -340,8 +347,14 @@ function loginPage(){
 }
 function counts(){
   const pend = REQUESTS.filter(r=>r.status==='pending');
-  const open = REQUESTS.filter(r=>['quoting','pending'].includes(r.status));
-  const c = {dash:pend.length, requests:REQUESTS.length, quotes:open.length, orders:REQUESTS.filter(r=>r.poNumber).length};
+  const mine = db.user ? REQUESTS.filter(r=>r.requesterId===db.user.id) : [];
+  const c = {
+    dash: pend.length,
+    buyerdesk: REQUESTS.filter(r=>r.status==='quoting').length + REQUESTS.filter(r=>r.status==='approved').length,
+    myreq: mine.filter(r=>['quoting','pending'].includes(r.status)).length,
+    requests: REQUESTS.length,
+    orders: REQUESTS.filter(r=>r.poNumber).length
+  };
   // async counts for v2 views (fire-and-forget)
   if(db.user && (db.role==='manager'||db.role==='purchaser')){
     pb.collection('q_vendors').getFullList().then(vs=>{
@@ -388,6 +401,26 @@ views.dash = function(){
   const myAct = db.role==='requester'
     ? `<div class="panel"><div class="panel-h"><h3>My requests</h3></div><table><thead><tr><th>Ref</th><th>Status</th><th>Needed by</th></tr></thead><tbody>
        ${mine.map(r=>`<tr><td>${r.id}</td><td>${statusBadge(r.status)}</td><td class="num">${esc(r.neededBy)}</td></tr>`).join('')}</tbody></table></div>` : '';
+  let after = '';
+  if(db.role==='manager'){
+    const toOrder = REQUESTS.filter(r=>r.status==='approved');
+    const latest = REQUESTS.filter(r=>['ordered','rejected'].includes(r.status)).slice(0,5);
+    after = `<div class="panel"><div class="panel-h"><h3>After your approval</h3><span class="hint">The buyer raises these from the buyer desk</span></div>
+      ${toOrder.length? `<table><thead><tr><th>Ref</th><th>Venture</th><th>Awarded vendor</th><th class="right">Total</th><th></th></tr></thead><tbody>
+      ${toOrder.map(r=>{const q=r.quotes[r.winner]; const t=q?quoteTotal(q,r.lines):null;
+        return `<tr><td><b>${r.id}</b><div class="venture">approved — PO outstanding</div></td>
+        <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.requester)}</div></td>
+        <td>${q?esc(q.vendor.trim()):'—'}</td>
+        <td class="num right">${t&&t.complete?money(t.total):'—'}</td>
+        <td class="right"><button class="btn small" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
+      </tbody></table>` : `<div style="padding:16px 20px;color:var(--faint);font-size:13px">Nothing waiting on a purchase order.</div>`}
+      ${latest.length? `<div style="border-top:1px solid var(--rule-soft)"><table><tbody>
+      ${latest.map(r=>`<tr><td style="width:130px"><b>${r.id}</b></td><td>${statusBadge(r.status)}</td>
+        <td style="color:var(--faint);font-size:12px">${r.poNumber?esc(r.poNumber):'—'} · ${esc(r.venture)}</td>
+        <td class="right"><button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`).join('')}
+      </tbody></table></div>`:''}
+    </div>`;
+  }
   main().innerHTML = `
     <div class="topbar"><div>
       <div class="kicker">${db.role==='manager'?'Approval desk':db.role==='purchaser'?'Purchasing desk':'Department desk'}</div>
@@ -399,7 +432,7 @@ views.dash = function(){
         : 'Track what you have asked purchasing for.'}</div>
     </div>
     <button class="btn" onclick="openNew()">＋ New purchase request</button></div>
-    ${stats}${queue}${db.role==='requester'?myAct:''}`;
+    ${stats}${queue}${after}${db.role==='requester'?myAct:''}`;
 };
 
 /* ---------- requests list ---------- */
@@ -424,24 +457,108 @@ views.requests = function(){
     </tbody></table></div>`;
 };
 
-/* ---------- quoting queue (purchaser) ---------- */
-views.quotes = function(){
-  const base = REQUESTS;
-  const list = applyReqFilter(base);
-  const isFiltered = REQ_FILTER!=='All';
+/* ---------- buyer desk (purchaser workspace) ---------- */
+let BUY_FILTER = 'All', BUY_VENTURE = 'All', BUY_REQUESTER = 'All';
+const BUY_STATUSES = [['All','All'],['quoting','To source'],['pending','Awaiting approval'],['approved','Ready to order'],['ordered','Ordered']];
+const buyScoped = () => REQUESTS.filter(r=>(BUY_VENTURE==='All'||r.venture===BUY_VENTURE) && (BUY_REQUESTER==='All'||r.requester===BUY_REQUESTER));
+window.setBuyFilter = v => { BUY_FILTER=v; render(); };
+window.setBuyVenture = v => { BUY_VENTURE=v; render(); };
+window.setBuyRequester = v => { BUY_REQUESTER=v; render(); };
+function distinctVentures(list){ return [...new Set(list.map(r=>r.venture).filter(Boolean))].sort(); }
+function distinctRequesters(list){ return [...new Set(list.map(r=>r.requester).filter(Boolean))].sort(); }
+function filterSelectHtml(label, current, options, handler){
+  return `<label class="chip select-pill" style="cursor:default">${label}
+    <select onchange="${handler}(this.value)">
+      <option value="All"${current==='All'?' selected':''}>All</option>
+      ${options.map(o=>`<option value="${esc(o)}"${current===o?' selected':''}>${esc(o)}</option>`).join('')}
+    </select></label>`;
+}
+views.buyerdesk = function(){
+  const scoped = buyScoped();
+  const list = BUY_FILTER==='All' ? scoped : scoped.filter(r=>r.status===BUY_FILTER);
+  const stat = st => REQUESTS.filter(r=>r.status===st).length;
+  const stats = `
+    <div class="stats">
+      <div class="stat"><div class="n gold">${stat('quoting')}</div><div class="l">To source — quotes needed</div></div>
+      <div class="stat"><div class="n">${stat('pending')}</div><div class="l">Awaiting approval</div></div>
+      <div class="stat"><div class="n">${stat('approved')}</div><div class="l">Approved — raise the PO</div></div>
+      <div class="stat"><div class="n">${stat('ordered')}</div><div class="l">Ordered</div></div>
+    </div>`;
+  const rowAction = r => {
+    if(r.status==='quoting') return `<button class="btn small" onclick="go('detail','${r.pbId}')">${r.quotes.length?'Capture quote '+(r.quotes.length+1)+'/3':'Attach 3 quotes'}</button>`;
+    if(r.status==='pending') return `<button class="btn small ghost" onclick="go('detail','${r.pbId}')">Awaiting approval</button>`;
+    if(r.status==='approved') return `<button class="btn small" onclick="go('detail','${r.pbId}')">Review &amp; raise PO</button>`;
+    return `<button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button>`;
+  };
   main().innerHTML = `
-    <div class="topbar"><div><div class="kicker">Purchasing</div><h2>Request pipeline</h2>
-    <div class="sub">Everything in the purchasing pipeline — filter by status to pick up each request where it left off.</div></div>
+    <div class="topbar"><div><div class="kicker">Purchasing desk</div><h2>Buyer desk</h2>
+    <div class="sub">Your active workspace — source three quotes per request, then raise the purchase order once the approval desk signs off. Filter by brand or requester to clear a queue.</div></div>
     <button class="btn" onclick="openNew()">＋ New purchase request</button></div>
-    <div class="chipbar" id="reqChips">${statusChipsHtml(base)}</div>
-    <div class="panel"><table><thead><tr><th>Ref</th><th>What's needed</th><th>Status</th><th class="right">Quotes</th><th></th></tr></thead><tbody>
-    ${list.map(r=>`<tr><td><b>${r.id}</b><div class="venture">${esc(r.venture)}</div></td>
+    ${stats}
+    <div class="chipbar" id="buyChips">${chipsHtml(scoped, BUY_FILTER, BUY_STATUSES, 'setBuyFilter')}</div>
+    <div class="chipbar sub" id="buyFilters">
+      ${filterSelectHtml('Brand', BUY_VENTURE, distinctVentures(REQUESTS), 'setBuyVenture')}
+      ${filterSelectHtml('Requester', BUY_REQUESTER, distinctRequesters(REQUESTS), 'setBuyRequester')}
+      ${(BUY_VENTURE!=='All'||BUY_REQUESTER!=='All')?`<button class="chip" onclick="setBuyVenture('All');setBuyRequester('All')">✕ Clear</button>`:''}
+    </div>
+    <div class="panel"><table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Requested by</th><th>What's needed</th><th>Status</th><th class="right">Quotes</th><th></th></tr></thead><tbody>
+    ${list.map(r=>`<tr><td><b>${r.id}</b>${r.poNumber?`<div class="venture">${esc(r.poNumber)}</div>`:''}<div class="venture">needed ${esc(r.neededBy)}</div></td>
+      <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.department)}</div></td>
+      <td>${esc(r.requester)}<div style="color:var(--faint);font-size:12px">${r.lines.length} line${r.lines.length>1?'s':''}</div></td>
       <td>${r.lines.map(l=>esc(l.item)+' ×'+esc(l.qty)).join('<br>')}</td>
-      <td>${statusBadge(r.status)}</td>
+      <td>${statusBadge(r.status)}${r.status==='quoting'&&r.quotes.length<3?`<div style="color:var(--faint);font-size:12px">${3-r.quotes.length} quote${3-r.quotes.length>1?'s':''} outstanding</div>`:''}</td>
       <td class="right num">${r.quotes.length} / 3</td>
-      <td class="right"><button class="btn small" onclick="go('detail','${r.pbId}')">${r.status==='quoting'?'Attach quotes':'Review'}</button></td></tr>`).join('')}
-    ${list.length?'':`<tr><td colspan="5"><div class="empty" style="padding:30px">No ${isFiltered?esc(REQ_FILTER):''} requests in the pipeline${isFiltered?` — <a href="#" onclick="setReqFilter('All');return false">clear filter</a>`:''}.</div></td></tr>`}
+      <td class="right">${rowAction(r)}</td></tr>`).join('')}
+    ${list.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">Nothing ${BUY_FILTER!=='All'?esc((BUY_STATUSES.find(s=>s[0]===BUY_FILTER)||[])[1]||'').toLowerCase()+' ':''}here${BUY_VENTURE!=='All'||BUY_REQUESTER!=='All'?` for the current brand/requester filter`:` — clear a filter or raise a new request`}.</div></td></tr>`}
     </tbody></table></div>`;
+};
+
+/* ---------- my requests (requester workspace) ---------- */
+let MY_FILTER = 'All', MY_VENTURE = 'All', MY_DEPT = 'All';
+window.setMyFilter = v => { MY_FILTER=v; render(); };
+window.setMyVenture = v => { MY_VENTURE=v; render(); };
+window.setMyDept = v => { MY_DEPT=v; render(); };
+views.myreq = function(){
+  const mine = REQUESTS.filter(r=>r.requesterId===db.user.id);
+  const scoped = mine.filter(r=>(MY_VENTURE==='All'||r.venture===MY_VENTURE) && (MY_DEPT==='All'||r.department===MY_DEPT));
+  const list = MY_FILTER==='All' ? scoped : scoped.filter(r=>r.status===MY_FILTER);
+  const stats = `
+    <div class="stats">
+      <div class="stat"><div class="n">${mine.filter(r=>r.status==='quoting').length}</div><div class="l">In sourcing</div></div>
+      <div class="stat"><div class="n gold">${mine.filter(r=>r.status==='pending').length}</div><div class="l">Awaiting approval</div></div>
+      <div class="stat"><div class="n">${mine.filter(r=>['approved','ordered'].includes(r.status)).length}</div><div class="l">Approved / ordered</div></div>
+      <div class="stat"><div class="n">${mine.filter(r=>r.poNumber).length}</div><div class="l">My POs issued</div></div>
+    </div>`;
+  const stepHint = r => r.status==='quoting' ? `Purchasing sourcing quotes (${r.quotes.length}/3)`
+    : r.status==='pending' ? 'With the approval desk' : r.status==='approved' ? 'Approved — PO being raised' : r.status==='rejected' ? esc(r.awardNote||'Declined') : r.poNumber ? 'Ordered' : '';
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Department desk${db.user.venture?` · ${esc(db.user.venture)}`:''}</div><h2>My requests</h2>
+    <div class="sub">Everything you have raised, end to end — sourcing, approval, and the purchase order. Filter to find any request you logged.</div></div>
+    <button class="btn" onclick="openNew()">＋ New request</button></div>
+    ${stats}
+    <div class="chipbar" id="myChips">${chipsHtml(scoped, MY_FILTER, REQ_STATUSES, 'setMyFilter')}</div>
+    <div class="chipbar sub" id="myFilters">
+      ${filterSelectHtml('Brand', MY_VENTURE, distinctVentures(mine), 'setMyVenture')}
+      ${filterSelectHtml('Department', MY_DEPT, [...new Set(mine.map(r=>r.department).filter(Boolean))].sort(), 'setMyDept')}
+      ${(MY_VENTURE!=='All'||MY_DEPT!=='All')?`<button class="chip" onclick="setMyVenture('All');setMyDept('All')">✕ Clear</button>`:''}
+    </div>
+    <div class="panel"><table><thead><tr><th>Ref</th><th>Venture / dept</th><th>What I asked for</th><th>Status</th><th class="right">Best total</th><th>PO</th><th></th></tr></thead><tbody>
+    ${list.map(r=>{const b=bestTotal(r);
+      return `<tr><td><b>${r.id}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
+      <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.department)}</div></td>
+      <td>${r.lines.map(l=>esc(l.item)+' ×'+esc(l.qty)).join('<br>')}${stepHint(r)?`<div style="color:var(--faint);font-size:12px">${stepHint(r)}</div>`:''}</td>
+      <td>${statusBadge(r.status)}</td>
+      <td class="num right">${b!=null?money(b):'—'}</td>
+      <td class="num">${r.poNumber?esc(r.poNumber):'—'}</td>
+      <td class="right"><button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
+    ${list.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">${mine.length?'No requests match this filter.':'You have not raised a request yet — use ＋ New request above.'}</div></td></tr>`}
+    </tbody></table></div>
+    <div class="panel"><div class="panel-h"><h3>How it works</h3></div>
+      <div style="padding:16px 20px;color:var(--muted);font-size:13px;line-height:1.9">
+      1 · You raise a request with what is needed and the GL-coded lines.<br>
+      2 · Purchasing sources three quotes against it.<br>
+      3 · The approval desk (manager) signs off — you can track every step here.<br>
+      4 · The buyer raises the purchase order and pushes it to Zoho.</div></div>`;
 };
 
 /* ---------- detail ---------- */
@@ -514,21 +631,37 @@ function qcardMini(r,vi){ const q=r.quotes[vi]; const t=quoteTotal(q,r.lines); c
     ${isMgr && r.status==='pending' ? `<button class="btn small approve" style="margin-top:8px;width:100%" onclick="approve(${vi})">Approve</button>`:''}</div>`; }
 
 /* ---------- orders ---------- */
+let ORD_VENTURE = 'All', ORD_REQUESTER = 'All';
+window.setOrdVenture = v => { ORD_VENTURE=v; views.orders(); };
+window.setOrdRequester = v => { ORD_REQUESTER=v; views.orders(); };
 views.orders = function(){
-  const ords = REQUESTS.filter(r=>r.poNumber && (db.role!=='requester' || r.requesterId===db.user.id));
+  const all = REQUESTS.filter(r=>r.poNumber && (db.role!=='requester' || r.requesterId===db.user.id));
+  const ords = all.filter(r=>(ORD_VENTURE==='All'||r.venture===ORD_VENTURE) && (ORD_REQUESTER==='All'||r.requester===ORD_REQUESTER));
+  let poValue = 0; ords.forEach(r=>{ const q=r.quotes[r.winner]; if(q){ const t=quoteTotal(q,r.lines); if(t.complete) poValue+=t.total; } });
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">After approval</div><h2>Purchase orders</h2>
-    <div class="sub">Approved requests become POs. Export the Zoho Inventory payload for direct push (Phase 2 wires the live API — credentials in Settings).</div></div></div>
-    ${ords.length? `<div class="panel"><table><thead><tr><th>PO</th><th>From request</th><th>Vendor</th><th class="right">Total</th><th></th></tr></thead><tbody>
+    <div class="sub">Approved requests become POs. Filter by brand or requester to reconcile against the P&amp;L. Export the Zoho Inventory payload for direct push.</div></div></div>
+    <div class="stats">
+      <div class="stat"><div class="n">${ords.length}</div><div class="l">POs${(ORD_VENTURE!=='All'||ORD_REQUESTER!=='All')?' (filtered)':''}</div></div>
+      <div class="stat"><div class="n gold">${money(poValue)}</div><div class="l">Committed spend</div></div>
+      <div class="stat"><div class="n">${distinctVentures(all).length}</div><div class="l">Brands ordering</div></div>
+    </div>
+    <div class="chipbar sub" id="ordFilters">
+      ${filterSelectHtml('Brand', ORD_VENTURE, distinctVentures(all), 'setOrdVenture')}
+      ${filterSelectHtml('Requester', ORD_REQUESTER, distinctRequesters(all), 'setOrdRequester')}
+      ${(ORD_VENTURE!=='All'||ORD_REQUESTER!=='All')?`<button class="chip" onclick="setOrdVenture('All');setOrdRequester('All')">✕ Clear</button>`:''}
+    </div>
+    ${ords.length? `<div class="panel"><table><thead><tr><th>PO</th><th>From request</th><th>Vendor</th><th>Requested by</th><th class="right">Total</th><th></th></tr></thead><tbody>
     ${ords.map(r=>{const q=r.quotes[r.winner]; const t=quoteTotal(q,r.lines);
-      return `<tr><td><b>${r.poNumber}</b></td><td>${r.id}<div class="venture">${esc(r.venture)}</div></td>
-      <td>${esc(r.quotes[r.winner].vendor.trim())}</td><td class="num">${money(quoteTotal(q,r.lines).total)}</td>
+      return `<tr><td><b>${r.poNumber}</b></td><td>${r.id}<div class="venture">${esc(r.venture)} · ${esc(r.department)}</div></td>
+      <td>${esc(r.quotes[r.winner].vendor.trim())}</td>
+      <td>${esc(r.requester)}</td><td class="num">${money(quoteTotal(q,r.lines).total)}</td>
       <td class="right" style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn small ghost" onclick="exportZoho('${r.pbId}')">Zoho JSON</button>
         <button class="btn small ghost" onclick="exportCSV('${r.pbId}')">CSV</button>
         <button class="btn small" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
     </tbody></table></div>`
-    : `<div class="panel"><div class="empty" style="padding:44px"><div style="font-family:var(--display);font-size:17px;margin-bottom:6px">No orders yet</div><div style="color:var(--muted)">Approve a request on the desk — it becomes a purchase order here.</div></div></div>`}`;
+    : `<div class="panel"><div class="empty" style="padding:44px"><div style="font-family:var(--display);font-size:17px;margin-bottom:6px">${all.length?'No POs match this filter':'No orders yet'}</div><div style="color:var(--muted)">${all.length?'Clear the brand/requester filter to see all purchase orders.':'Approve a request on the desk — it becomes a purchase order here.'}</div></div></div>`}`;
 };
 
 /* ---------- vendors (v2) ---------- */
@@ -599,13 +732,14 @@ let REQ_FILTER = 'All';
 const REQ_STATUSES = [
   ['All','All'], ['quoting','Quoting'], ['pending','Pending'], ['approved','Approved'], ['rejected','Rejected'], ['ordered','Ordered']
 ];
-function statusChipsHtml(list){
+function chipsHtml(list, filter, statuses, handler){
   const counts = {}; list.forEach(r=>{ counts[r.status]=(counts[r.status]||0)+1; });
-  return REQ_STATUSES.map(([v,l])=>{
+  return statuses.map(([v,l])=>{
     const n = v==='All' ? list.length : (counts[v]||0);
-    return `<button class="chip ${REQ_FILTER===v?'active':''}" data-v="${v}" onclick="setReqFilter(this.dataset.v)">${l}${n?`<span class="count">${n}</span>`:''}</button>`;
+    return `<button class="chip ${filter===v?'active':''}" data-v="${v}" onclick="${handler}(this.dataset.v)">${l}${n?`<span class="count">${n}</span>`:''}</button>`;
   }).join('');
 }
+function statusChipsHtml(list){ return chipsHtml(list, REQ_FILTER, REQ_STATUSES, 'setReqFilter'); }
 const applyReqFilter = list => REQ_FILTER==='All' ? list : list.filter(r=>r.status===REQ_FILTER);
 window.setReqFilter = function(v){ REQ_FILTER=v; render(); };
 views.catalog = async function(){
@@ -728,7 +862,7 @@ window.login = async function(){
   try{
     const res = await pb.collection('qp_users').authWithPassword(email, pass);
     const rec = res.record || res;   // SDK >=0.23 returns {record, token}
-    db.user = rec; db.role = rec.role;
+    db.user = rec; db.role = rec.role; db.view = homeView(rec.role); db.viewId = null;
     await loadRequests(); render();
   }catch(e){
     document.getElementById('liErr').textContent = 'Sign-in failed — check email and password.';
@@ -1044,6 +1178,7 @@ async function boot(){
   if(pb.authStore.isValid){
     db.user = pb.authStore.record;
     db.role = pb.authStore.record.role;
+    db.view = homeView(db.role);
     try { await loadRequests(); } catch(e){ console.error(e); }
   }
   render();
