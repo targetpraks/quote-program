@@ -26,19 +26,40 @@ a{color:var(--gold)}
 button{font-family:var(--body)}
 .app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
 /* ── sidebar ── */
-aside{background:var(--panel2);border-right:1px solid var(--rule-soft);padding:22px 0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
-.brand{padding:0 22px 20px;border-bottom:1px solid var(--rule-soft)}
+aside{background:var(--panel2);border-right:1px solid var(--rule-soft);padding:22px 0 16px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:0 22px 18px;border-bottom:1px solid var(--rule-soft)}
 .brand .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--gold);text-transform:uppercase}
-.brand h1{font-family:var(--display);font-weight:600;font-size:21px;margin-top:6px;color:var(--ink)}
-nav{flex:1;padding:18px 10px;display:flex;flex-direction:column;gap:2px}
-.nav-btn{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;color:var(--muted);font:500 13.5px var(--body);padding:10px 12px;border-radius:8px;cursor:pointer;text-align:left;border-left:2px solid transparent}
-.nav-btn:hover{color:var(--ink);background:rgba(255,255,255,.03)}
-.nav-btn.active{color:var(--ink);background:var(--gold-soft);border-left:2px solid var(--gold)}
-.nav-btn .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--gold);background:rgba(212,175,106,.1);padding:1px 7px;border-radius:99px}
-.rolebox{padding:16px 22px 0;border-top:1px solid var(--rule-soft)}
-.rolebox label{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--faint);text-transform:uppercase;color:var(--faint)}
-.rolebox select{width:100%;margin-top:8px;background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:8px;padding:9px 10px;font:500 13px var(--body)}
-.rolebox .who{margin-top:8px;font-size:12px;color:var(--muted)}
+.brand h1{font-family:var(--display);font-weight:600;font-size:21px;margin-top:6px;background:linear-gradient(90deg,var(--ink) 45%,var(--gold));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:var(--gold)}
+nav{flex:1;padding:14px 10px 4px;display:flex;flex-direction:column;overflow-y:auto}
+.side-cta{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:linear-gradient(180deg,#DFBC79,#C89E55);color:#14100A;border:0;font:700 13px var(--body);padding:10px 12px;border-radius:9px;cursor:pointer;margin-bottom:16px;box-shadow:0 6px 18px rgba(212,175,106,.16)}
+.side-cta:hover{filter:brightness(1.07)}
+.nav-sec{margin-bottom:13px}
+.nav-sec-l{display:flex;align-items:center;gap:7px;padding:0 12px 7px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#8C99B0}
+.nav-sec-l::before{content:'';width:5px;height:5px;border-radius:2px;background:var(--sec,#7A869D);box-shadow:0 0 8px var(--sec,#7A869D)}
+.nav-sec-l::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.10),transparent)}
+.sec-gold{--sec:#E4C27E}.sec-blue{--sec:#7EA6E8}.sec-green{--sec:#57B98A}.sec-violet{--sec:#A495E8}
+.nav-btn{--tone:var(--muted);--tone-soft:rgba(255,255,255,.05);--tone-hover:rgba(255,255,255,.035);display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;color:#A7B2C8;font:500 13.5px var(--body);padding:9px 12px;border-radius:8px;cursor:pointer;text-align:left;border-left:2px solid transparent;margin-bottom:2px;transition:background .15s,color .15s,border-color .15s}
+.nav-btn .nico{width:16px;text-align:center;color:var(--tone);font-size:13px;line-height:1;opacity:.9}
+.nav-btn .nlab{flex:1;min-width:0}
+.nav-btn:hover{color:var(--ink);background:var(--tone-hover);border-left-color:var(--tone)}
+.nav-btn:hover .nico{opacity:1}
+.nav-btn.active{color:var(--ink);font-weight:600;background:var(--tone-soft);border-left:2px solid var(--tone)}
+.nav-btn.active .nico{opacity:1;text-shadow:0 0 10px var(--tone)}
+.nav-btn .count{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:600;color:#0B0F1A;background:var(--tone);border:1px solid var(--tone);padding:0 7px;border-radius:99px;min-width:20px;text-align:center;opacity:.92}
+.nav-btn.active .count{opacity:1;box-shadow:0 0 12px var(--tone)}
+.nav-btn .count:empty{display:none}
+/* per-destination tone — one colour per place, instant recognition */
+.t-gold{--tone:#E4C27E;--tone-soft:rgba(212,175,106,.17);--tone-hover:rgba(212,175,106,.08)}
+.t-blue{--tone:#7EA6E8;--tone-soft:rgba(126,166,232,.16);--tone-hover:rgba(126,166,232,.08)}
+.t-green{--tone:#57B98A;--tone-soft:rgba(87,185,138,.16);--tone-hover:rgba(87,185,138,.08)}
+.t-teal{--tone:#54B2B4;--tone-soft:rgba(84,178,180,.16);--tone-hover:rgba(84,178,180,.08)}
+.t-amber{--tone:#E0A852;--tone-soft:rgba(224,168,82,.16);--tone-hover:rgba(224,168,82,.08)}
+.t-violet{--tone:#A495E8;--tone-soft:rgba(164,149,232,.16);--tone-hover:rgba(164,149,232,.08)}
+.rolebox{padding:15px 22px 2px;border-top:1px solid var(--rule-soft)}
+.rolebox .rb-name{margin-top:9px;font:600 13.5px var(--body);color:var(--ink)}
+.rolebox .rb-mail{color:var(--muted);font-size:11.5px;margin:8px 0 12px;word-break:break-all}
+#btn-logout{width:100%}
+.role-chip{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--tone);background:var(--tone-soft);border:1px solid var(--tone);border-radius:999px;padding:3px 10px}
 /* ── main ── */
 main{padding:34px 40px 80px;max-width:1240px;width:100%}
 .topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:26px}
@@ -58,6 +79,10 @@ main{padding:34px 40px 80px;max-width:1240px;width:100%}
 .stat{background:var(--panel);border:1px solid var(--rule-soft);border-radius:12px;padding:16px 18px}
 .stat .n{font-family:var(--mono);font-weight:600;font-size:26px;color:var(--ink)}
 .stat .n.gold{color:var(--gold)}
+.stat .n.amber{color:var(--amber)}
+.stat .n.green{color:var(--green)}
+.stat .n.blue{color:#7EA6E8}
+.stat .n.teal{color:#54B2B4}
 .stat .l{color:var(--muted);font-size:12px;margin-top:4px}
 main{margin-inline:auto}
 /* panels & tables */
@@ -141,13 +166,24 @@ tbody tr:hover{background:rgba(255,255,255,.02)}
 pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-radius:10px;padding:14px;font:400 11.5px var(--mono);overflow:auto;max-height:340px;color:#B9C4DA}
 @media (max-width:960px){
   .app{grid-template-columns:1fr}
-  aside{position:relative;height:auto;flex-direction:row;align-items:center;gap:12px;padding:12px 16px}
-  nav{flex-direction:row;overflow-x:auto;padding:0}
-  .brand h1{font-size:16px}
-  .rolebox{border:0;padding:0 8px}
+  aside{position:relative;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:12px 16px}
+  .brand{padding:0;border:0}
+  .brand .eyebrow{display:none}
+  .brand h1{font-size:16px;margin-top:0}
+  nav{order:3;flex:1 1 100%;flex-direction:row;overflow-x:auto;padding:2px 0 4px;gap:6px;scrollbar-width:thin}
+  .nav-sec{display:flex;flex-direction:row;gap:4px;margin:0}
+  .nav-sec-l{display:none}
+  .nav-btn{width:auto;white-space:nowrap;margin-bottom:0}
+  .side-cta{display:none}
+  .rolebox{border:0;padding:0;margin-left:auto;display:flex;align-items:center;gap:10px;min-width:0}
+  .rolebox label{display:none}
+  .rolebox .rb-name{margin:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22vw}
+  .rolebox .role-chip{margin-top:0}
+  .rolebox .rb-mail{display:none}
+  #btn-logout{width:auto;white-space:nowrap}
   main{padding:22px 16px 60px}
   .stats{grid-template-columns:repeat(2,1fr)}
-  .grid2,.quote-cols,.form-col{grid-template-columns:1fr}
+  .grid2,.quote-cols,.form-col,.form{grid-template-columns:1fr!important}
 }
 @media (prefers-reduced-motion:no-preference){.stamp{animation:stamp .35s ease-out}@keyframes stamp{0%{transform:rotate(-4deg) scale(1.6);opacity:0}100%{transform:rotate(-4deg);opacity:1}}}
 :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
@@ -169,8 +205,8 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
 <script>
 /* ============================== state ============================== */
 const PB_URL = 'http://127.0.0.1:8090';
-const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const pb = new PocketBase(PB_URL);
+const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
 const VENTURES = ['Infinity Brands','The Local Farmer','Papa Pasta','INFX Media','INFX Solutions','INFX Labs','FluxFlow','ACDC Express'];
 const DEPTS = ['Operations','Purchasing','Sales & Marketing','Finance','Production','Logistics','Admin','IT'];
 const money = n => 'R ' + (Math.round((+n||0)*100)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -302,20 +338,32 @@ function render(){
     return;
   }
   const role = db.role;
-  const navDef = [
-    role==='manager'   && ['dash','◈ Approval desk'],
-    role==='purchaser' && ['buyerdesk','◈ Buyer desk'],
-    role==='requester' && ['myreq','◈ My requests'],
-    role!=='requester' && ['requests','All requests'],
-    ['vendors','Vendors'],
-    ['catalog','Catalog'],
-    role!=='requester' && ['notifications','Alerts'],
-    role==='manager' && ['users','Staff'],
-    ['orders','Orders · Zoho'],
-    ['settings','Settings'],
-  ].filter(Boolean);
-  document.querySelector('nav').innerHTML = navDef.map(([v,l]) =>
-    `<button class="nav-btn" data-v="${v}">${l}<span class="count"></span></button>`).join('');
+  /* grouped navigation — one tone per destination for instant recognition */
+  const navSpec = [
+    {sec:'Workspace', sc:'sec-gold', items:[
+      role==='manager'   && {v:'dash',     g:'◈', l:'Approval desk',  t:'t-gold'},
+      role==='purchaser' && {v:'buyerdesk',g:'◈', l:'Buyer desk',     t:'t-gold'},
+      role==='requester' && {v:'myreq',    g:'◈', l:'My requests',    t:'t-gold'},
+    ]},
+    {sec:'Registers', sc:'sec-blue', items:[
+      role!=='requester' && {v:'requests', g:'☰', l:'All requests',   t:'t-blue'},
+      {v:'orders', g:'✔', l:'Orders · Zoho', t:'t-blue'},
+    ]},
+    {sec:'Master data', sc:'sec-green', items:[
+      {v:'vendors', g:'⬢', l:'Vendors', t:'t-green'},
+      {v:'catalog', g:'▦', l:'Catalog', t:'t-teal'},
+    ]},
+    {sec:'Admin', sc:'sec-violet', items:[
+      role!=='requester' && {v:'notifications', g:'⚑', l:'Alerts',    t:'t-amber'},
+      role==='manager'   && {v:'users',         g:'◉', l:'Staff',     t:'t-violet'},
+      {v:'settings', g:'⚙', l:'Settings', t:'t-violet'},
+    ]},
+  ].map(s=>({sec:s.sec, sc:s.sc, items:s.items.filter(Boolean)})).filter(s=>s.items.length);
+  document.querySelector('nav').innerHTML =
+    `<button class="side-cta" id="sideNew">＋ New request</button>` +
+    navSpec.map(s=>`<div class="nav-sec"><div class="nav-sec-l ${s.sc}">${s.sec}</div>${
+      s.items.map(it=>`<button class="nav-btn ${it.t}" data-v="${it.v}"><span class="nico">${it.g}</span><span class="nlab">${it.l}</span><span class="count"></span></button>`).join('')
+    }</div>`).join('');
   document.getElementById('rolebox').innerHTML = userHTML();
   document.getElementById('btn-logout').addEventListener('click', logout);
   const v = db.view||homeView(role);
@@ -327,10 +375,12 @@ function render(){
   window.scrollTo({top:0});
 }
 function userHTML(){
+  const rc = db.role==='manager'?'t-gold':db.role==='purchaser'?'t-blue':'t-green';
   return `<label style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--faint);text-transform:uppercase">Signed in</label>
-  <div style="margin-top:8px;font:600 13px var(--body)">${esc(db.user.name)}</div>
-  <div style="color:var(--muted);font-size:12px;margin:2px 0 10px">${esc(db.user.email)} · ${esc(db.role)}</div>
-  <button class="btn ghost small" id="btn-logout" style="width:100%">Sign out</button>`;
+  <div class="rb-name">${esc(db.user.name)}</div>
+  <div class="role-chip ${rc}">${esc(db.role)}</div>
+  <div class="rb-mail">${esc(db.user.email)}</div>
+  <button class="btn ghost small" id="btn-logout">Sign out</button>`;
 }
 function loginPage(){
   return `<div style="display:flex;justify-content:center;padding-top:9vh">
@@ -359,7 +409,7 @@ function counts(){
   if(db.user && (db.role==='manager'||db.role==='purchaser')){
     pb.collection('q_vendors').getFullList().then(vs=>{
       const b=document.querySelector('.nav-btn[data-v="vendors"] .count');
-      if(b) b.textContent = vs.length;
+      if(b) b.textContent = vs.length||'';
     }).catch(()=>{});
     pb.collection('q_notifications').getFullList().then(ns=>{
       const b=document.querySelector('.nav-btn[data-v="notifications"] .count');
@@ -368,7 +418,7 @@ function counts(){
   }
   document.querySelectorAll('.nav-btn').forEach(b=>{
     const el=b.querySelector('.count'); const n=c[b.dataset.v];
-    if(el) el.textContent = (n===undefined)?'':n;
+    if(el) el.textContent = (n===undefined||!n)?'':n;
   });
 }
 
@@ -380,9 +430,9 @@ views.dash = function(){
   const stats = `
     <div class="stats">
       <div class="stat"><div class="n gold">${pend.length}</div><div class="l">Awaiting your approval</div></div>
-      <div class="stat"><div class="n">${quoting.length}</div><div class="l">Out with purchasers (quoting)</div></div>
-      <div class="stat"><div class="n">${REQUESTS.filter(r=>['approved','ordered'].includes(r.status)).length}</div><div class="l">Approved / ordered</div></div>
-      <div class="stat"><div class="n">${REQUESTS.filter(r=>r.poNumber).length}</div><div class="l">POs generated</div></div>
+      <div class="stat"><div class="n amber">${quoting.length}</div><div class="l">Out with purchasers (quoting)</div></div>
+      <div class="stat"><div class="n green">${REQUESTS.filter(r=>['approved','ordered'].includes(r.status)).length}</div><div class="l">Approved / ordered</div></div>
+      <div class="stat"><div class="n blue">${REQUESTS.filter(r=>r.poNumber).length}</div><div class="l">POs generated</div></div>
     </div>`;
   let queue = '';
   if(pend.length){
@@ -479,10 +529,10 @@ views.buyerdesk = function(){
   const stat = st => REQUESTS.filter(r=>r.status===st).length;
   const stats = `
     <div class="stats">
-      <div class="stat"><div class="n gold">${stat('quoting')}</div><div class="l">To source — quotes needed</div></div>
-      <div class="stat"><div class="n">${stat('pending')}</div><div class="l">Awaiting approval</div></div>
-      <div class="stat"><div class="n">${stat('approved')}</div><div class="l">Approved — raise the PO</div></div>
-      <div class="stat"><div class="n">${stat('ordered')}</div><div class="l">Ordered</div></div>
+      <div class="stat"><div class="n amber">${stat('quoting')}</div><div class="l">To source — quotes needed</div></div>
+      <div class="stat"><div class="n gold">${stat('pending')}</div><div class="l">Awaiting approval</div></div>
+      <div class="stat"><div class="n green">${stat('approved')}</div><div class="l">Approved — raise the PO</div></div>
+      <div class="stat"><div class="n blue">${stat('ordered')}</div><div class="l">Ordered</div></div>
     </div>`;
   const rowAction = r => {
     if(r.status==='quoting') return `<button class="btn small" onclick="go('detail','${r.pbId}')">${r.quotes.length?'Capture quote '+(r.quotes.length+1)+'/3':'Attach 3 quotes'}</button>`;
@@ -544,10 +594,10 @@ views.myreq = function(){
   const cols = isBrand ? 8 : 7;
   const stats = `
     <div class="stats">
-      <div class="stat"><div class="n">${base.filter(r=>r.status==='quoting').length}</div><div class="l">In sourcing</div></div>
+      <div class="stat"><div class="n amber">${base.filter(r=>r.status==='quoting').length}</div><div class="l">In sourcing</div></div>
       <div class="stat"><div class="n gold">${base.filter(r=>r.status==='pending').length}</div><div class="l">Awaiting approval</div></div>
-      <div class="stat"><div class="n">${base.filter(r=>['approved','ordered'].includes(r.status)).length}</div><div class="l">Approved / ordered</div></div>
-      <div class="stat"><div class="n">${base.filter(r=>r.poNumber).length}</div><div class="l">${isBrand?'POs issued — brand':'My POs issued'}</div></div>
+      <div class="stat"><div class="n green">${base.filter(r=>['approved','ordered'].includes(r.status)).length}</div><div class="l">Approved / ordered</div></div>
+      <div class="stat"><div class="n blue">${base.filter(r=>r.poNumber).length}</div><div class="l">${isBrand?'POs issued — brand':'My POs issued'}</div></div>
     </div>`;
   const stepHint = r => r.status==='quoting' ? `Purchasing sourcing quotes (${r.quotes.length}/3)`
     : r.status==='pending' ? 'With the approval desk' : r.status==='approved' ? 'Approved — PO being raised' : r.status==='rejected' ? esc(r.awardNote||'Declined') : r.poNumber ? 'Ordered' : '';
@@ -675,9 +725,9 @@ views.orders = function(){
     <div class="topbar"><div><div class="kicker">After approval</div><h2>Purchase orders</h2>
     <div class="sub">Approved requests become POs. Filter by brand or requester to reconcile against the P&amp;L. Export the Zoho Inventory payload for direct push.</div></div></div>
     <div class="stats">
-      <div class="stat"><div class="n">${ords.length}</div><div class="l">POs${(ORD_VENTURE!=='All'||ORD_REQUESTER!=='All')?' (filtered)':''}</div></div>
+      <div class="stat"><div class="n blue">${ords.length}</div><div class="l">POs${(ORD_VENTURE!=='All'||ORD_REQUESTER!=='All')?' (filtered)':''}</div></div>
       <div class="stat"><div class="n gold">${money(poValue)}</div><div class="l">Committed spend</div></div>
-      <div class="stat"><div class="n">${distinctVentures(all).length}</div><div class="l">Brands ordering</div></div>
+      <div class="stat"><div class="n teal">${distinctVentures(all).length}</div><div class="l">Brands ordering</div></div>
     </div>
     <div class="chipbar sub" id="ordFilters">
       ${filterSelectHtml('Brand', ORD_VENTURE, distinctVentures(all), 'setOrdVenture')}
@@ -1276,7 +1326,8 @@ views.settings = function(){
 /* ============================== wiring ============================== */
 document.getElementById('nav').innerHTML = '';
 document.addEventListener('click', e=>{
-  const b=e.target.closest('.nav-btn'); if(b) go(b.dataset.v);
+  const b=e.target.closest('.nav-btn'); if(b){ go(b.dataset.v); return; }
+  if(e.target.closest('#sideNew')) openNew();
 });
 document.addEventListener('keydown', e=>{
   if(e.key==='Enter' && (e.target.id==='liEmail'||e.target.id==='liPass')) login();

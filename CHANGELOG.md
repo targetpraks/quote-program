@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.6.0 — 2026-09-15 (sidebar reorganisation + colour system)
+
+### Changed
+- **Sidebar is now grouped, not a flat list.** Four labelled sections — *Workspace* (your role's desk), *Registers* (all requests, orders), *Master data* (vendors, catalog), *Admin* (alerts, staff, settings) — so destinations are found by intent, not by reading every label.
+- **One colour per destination, applied consistently.** Each nav item carries a tone (gold / blue / green / teal / amber / violet) that paints its icon, its hover edge, its active pill, and its count badge; section labels echo their group's tone with a dot and rule. Colour now encodes *where you are*, not decoration.
+- **Contrast raised across the sidebar.** Inactive labels move from muted grey to brighter slate (measured 8.5:1 on the panel, up from ~3:1); section labels 6.3:1; badges are solid-tone pills with dark text (7.3–11.2:1). Every sidebar text element clears WCAG AA at its size.
+- **Account block reworked** — name, role chip colour-coded to the role (manager gold / purchaser blue / requester green), email, then Sign out; spacing fixed and email truncation handled on narrow widths.
+- **New request CTA in the sidebar** — the primary action is always one click away, above the nav (the top-bar button remains).
+- **Empty count badges hide** instead of rendering as stray dashes, so a badge always means "there is something here".
+- **Narrow screens reflow cleanly** — the bar wraps (brand + account row one, scrollable nav row two) and form grids stack, removing a pre-existing horizontal overflow at ≤960px (verified 0 overflowing elements at 780px).
+
+### Notes
+- Presentation-only release: no schema change, no collection or server-rule changes.
+- Verified live as all three roles (manager / purchaser / requester): grouped sections render per role, tone classes applied, badges correct, active state follows the view, CTA opens the new-request modal, every nav destination loads, mobile wrap verified at 780px with zero horizontal overflow.
+
 ## v2.5.0 — 2026-09-15 (brand-wide visibility for requesters — duplicate prevention)
 
 ### Added
