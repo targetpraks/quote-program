@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.8.1 — 2026-09-15 (dashboard register alignment)
+
+### Fixed
+- **"After your approval" register: the recent-orders block rendered as a table with no header**, so its four cells collided with the five-column header above it — status pills landed in the "Venture" column, PO references in "Awarded vendor", and the money column came up empty. It now carries its own header row (**Ref · Status · PO · brand**) and reads as what it is: a distinct sub-register below the approved-awaiting-PO block.
+- **Reference identifiers no longer break across two lines.** `RQ-2026-0002` and its siblings wrapped mid-token in the narrow first column, doubling those rows' height (38px against 17px) and knocking the row rhythm out. Refs carry `white-space: nowrap`; every row in the block now measures a uniform 54px.
+
+### Notes
+- Cosmetic/structure only — no logic, schema or server change.
+- Design system unchanged (`DESIGN.md`); the new `.nowrap` utility is a layout helper, not a token.
+- Verified: the block's header and cells align column-for-column; all five refs render on one line; row heights uniform; full role × view regression re-run (manager 8 / purchaser 6 / requester 5) with zero console errors, plus detail/matrix, modal and search flows.
+
 ## v2.8.0 — 2026-09-15 (design system + interface lift)
 
 ### Added

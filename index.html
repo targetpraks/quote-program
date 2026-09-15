@@ -105,6 +105,7 @@ th{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:up
 td{padding:12px 14px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
 tbody tr:hover{background:rgba(255,255,255,.04)}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.nowrap{white-space:nowrap}
 .right{text-align:right}
 .badge{display:inline-flex;align-items:center;gap:5px;font:600 11px var(--body);padding:3px 9px;border-radius:999px;white-space:nowrap}
 .b-quoting{background:var(--amber-soft);color:var(--amber)}
@@ -496,7 +497,7 @@ function userHTML(){
   <div class="role-chip ${rc}">${esc(db.role)}</div>
   <div class="rb-mail">${esc(db.user.email)}</div>
   <button class="btn ghost small" id="btn-logout">Sign out</button>
-  <div class="ver" title="Build version — check this against the repo before debugging stale copies">Quorum v2.8.0</div>`;
+  <div class="ver" title="Build version — check this against the repo before debugging stale copies">Quorum v2.8.1</div>`;
 }
 function loginPage(){
   return `<div style="display:flex;justify-content:center;padding-top:9vh">
@@ -580,8 +581,8 @@ views.dash = function(){
         <td class="num right">${t&&t.complete?money(t.total):'—'}</td>
         <td class="right"><button class="btn small" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
       </tbody></table>` : `<div style="padding:16px 20px;color:var(--faint);font-size:13px">Nothing waiting on a purchase order.</div>`}
-      ${latest.length? `<div style="border-top:1px solid var(--rule-soft)"><table><tbody>
-      ${latest.map(r=>`<tr><td style="width:130px"><b>${r.id}</b></td><td>${statusBadge(r.status)}</td>
+      ${latest.length? `<div style="border-top:1px solid var(--rule-soft)"><table><thead><tr><th>Ref</th><th>Status</th><th>PO · brand</th><th></th></tr></thead><tbody>
+      ${latest.map(r=>`<tr><td style="width:130px"><b class="nowrap">${r.id}</b></td><td>${statusBadge(r.status)}</td>
         <td style="color:var(--faint);font-size:12px">${r.poNumber?esc(r.poNumber):'—'} · ${esc(r.venture)}</td>
         <td class="right"><button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`).join('')}
       </tbody></table></div>`:''}
@@ -1567,7 +1568,7 @@ views.settings = function(){
     <div class="panel"><div class="panel-h"><h3>Data</h3></div>
       <div style="padding:18px;display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn ghost" onclick="backupAll()">Export backup (JSON)</button>
-        <span style="color:var(--faint);font-size:12.5px;align-self:center">Server-backed on PocketBase · ${PB_URL} · Quorum v2.8.0 (design system 1.0 — see DESIGN.md)</span>
+        <span style="color:var(--faint);font-size:12.5px;align-self:center">Server-backed on PocketBase · ${PB_URL} · Quorum v2.8.1 (design system 1.0 — see DESIGN.md)</span>
       </div></div>`;
   document.getElementById('zOrg').addEventListener('change',e=>localStorage.setItem('qp_zoho_org', e.target.value.trim()));
 };
