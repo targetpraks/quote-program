@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:8090; img-src 'self' http://127.0.0.1:8090 data: blob:; media-src 'self'">
 <title>Quorum — Purchasing Desk</title>
 <script src="https://cdn.jsdelivr.net/npm/pocketbase/dist/pocketbase.umd.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -185,8 +186,25 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
   .stats{grid-template-columns:repeat(2,1fr)}
   .grid2,.quote-cols,.form-col,.form{grid-template-columns:1fr!important}
 }
+@media print{
+  aside,.topbar,.chipbar,.panel-h .hint,td .btn,td .btn.small,td .btn.ghost,.crumbs,#globalSearchWrap,#printActions{display:none!important}
+  body{background:#fff;color:#000}
+  .app{grid-template-columns:1fr!important}
+  main{padding:0;max-width:none}
+  .panel,.stat{background:#fff;border:1px solid #ccc;color:#000}
+  .panel-h h3{color:#000}
+  .num{font-family:var(--mono)}
+  #poPrintSheet{display:block!important}
+}
 @media (prefers-reduced-motion:no-preference){.stamp{animation:stamp .35s ease-out}@keyframes stamp{0%{transform:rotate(-4deg) scale(1.6);opacity:0}100%{transform:rotate(-4deg);opacity:1}}}
 :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.topbar-search{position:relative;flex:1;max-width:320px}
+.topbar-search input{width:100%;background:var(--panel);border:1px solid var(--rule);border-radius:9px;color:var(--ink);padding:9px 12px 9px 34px;font:400 13px var(--body)}
+.topbar-search input:focus{outline:none;border-color:var(--gold)}
+.topbar-search .mag{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:14px}
+.error-panel{padding:26px 20px;text-align:center}
+.error-panel .big{font-family:var(--display);font-size:17px;margin-bottom:8px;color:var(--red)}
+.inline-err{color:var(--red);font-size:12px;margin-top:4px;min-height:18px}
 </style>
 </head>
 <body>
@@ -263,12 +281,76 @@ const priceEntry = (q, i) => {
 };
 const rateExcl = (q, i) => { const e = priceEntry(q,i); if(e==null) return null; const v = +lineTotVatExcl(e); return isNaN(v) ? null : Math.round(v*100)/100; };
 
+const isAuthError = e => { const s = e?.status || e?.response?.status || e?.data?.code; return s===401 || s===403 || (s===404 && db.user); };
+const logoutExpired = msg => { pb.authStore.clear(); db.user=null; db.role=null; REQUESTS=[]; toast(msg||'Session expired — sign in again'); go('dash'); };
+function handleWriteErr(e, fallback){
+  if(isAuthError(e)){ logoutExpired('Session expired — please sign in again'); return; }
+  const m = e?.message || e?.response?.message || fallback || 'Request failed';
+  toast(m);
+}
+const matchesGlobalSearch = (r, term) => {
+  if(!term) return true;
+  const t = term.toLowerCase();
+  const hay = [r.id, r.requester, r.venture, r.department, r.poNumber||'', r.notes||'', ...(r.lines||[]).map(l=>[l.item,l.spec||''].join(' '))].join(' ').toLowerCase();
+  return hay.includes(t);
+};
+const validateQty = v => {
+  const n = Number(v);
+  if(v==='' || v==null) return 'Quantity is required.';
+  if(isNaN(n) || !isFinite(n)) return 'Quantity must be a number.';
+  if(n<=0) return 'Quantity must be greater than zero.';
+  if(n>999999) return 'Quantity is unrealistically large.';
+  return null;
+};
+const validatePrice = v => {
+  const n = Number(v);
+  if(v==='' || v==null) return null; // optional, but if present must be valid
+  if(isNaN(n) || !isFinite(n)) return 'Price must be a number.';
+  if(n<0) return 'Price cannot be negative.';
+  if(n>999999999) return 'Price is unrealistically large.';
+  return null;
+};
+const allowedQuoteExt = ['pdf','jpg','jpeg','png','docx','xls','xlsx'];
+const validateQuoteFile = f => {
+  if(!f) return null;
+  const ext = (f.name.split('.').pop()||'').toLowerCase();
+  if(!allowedQuoteExt.includes(ext)) return `Unsupported file type (${ext}). Use PDF, JPG, PNG, DOCX, XLS or XLSX.`;
+  if(f.size>10*1024*1024) return 'File is too large — 10 MB maximum.';
+  return null;
+};
+const csvCell = v => {
+  const s = String(v==null?'':v);
+  if(/[",\n\r]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  return s;
+};
+const csvRow = arr => arr.map(csvCell).join(',');
+const downloadCsv = (name, rows) => download(name, rows.map(csvRow).join('\n'), 'text/csv;charset=utf-8;');
+const errorPanel = (title, body, retry) => `<div class="panel error-panel"><div class="big">${esc(title)}</div><div style="color:var(--muted);margin-bottom:14px">${esc(body)}</div>${retry?`<button class="btn" onclick="${retry}">Retry</button>`:''}</div>`;
+const emptyState = (title, body) => `<div class="panel"><div class="empty" style="padding:44px"><div class="big">${esc(title)}</div><div style="color:var(--muted)">${esc(body)}</div></div></div>`;
+let FOCUS_TRIGGER = null;
+function openModal(html){
+  const m=document.createElement('div'); m.className='modal-bg'; m.setAttribute('role','dialog'); m.setAttribute('aria-modal','true');
+  m.innerHTML=html;
+  document.body.appendChild(m);
+  const focusable = m.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  const first = focusable[0];
+  if(first) first.focus();
+  m.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){ e.preventDefault(); closeModal(); if(FOCUS_TRIGGER) FOCUS_TRIGGER.focus(); }
+    if(e.key==='Tab' && focusable.length){
+      const active = document.activeElement;
+      if(e.shiftKey && active===first){ e.preventDefault(); focusable[focusable.length-1].focus(); }
+      else if(!e.shiftKey && active===focusable[focusable.length-1]){ e.preventDefault(); first.focus(); }
+    }
+  });
+}
 
 let db = { view:'dash', viewId:null, role:null, user:null };
 let REQUESTS = [];
+let G_SEARCH = '';
 
 async function loadRequests(){
-  const recs = await pb.collection('qp_requests').getFullList();
+  const recs = await pb.collection('qp_requests').getFullList({ requestKey: null });
   REQUESTS = recs.map(r => ({
     id: r.ref, pbId: r.id, venture: r.venture, department: r.department,
     requester: r.requester, requesterId: r.requester_id, neededBy: (r.needed_by||'').slice(0,10),
@@ -276,7 +358,7 @@ async function loadRequests(){
     approvalBand: r.approval_band || 'manager', awardNote: r.award_note || '', estTotal: r.est_total,
     lines: r.lines || [], audit: r.audit || [], quotes: []
   }));
-  const qs = await pb.collection('qp_quotes').getFullList();
+  const qs = await pb.collection('qp_quotes').getFullList({ requestKey: null });
   for(const q of qs){
     const req = REQUESTS.find(r => r.pbId === q.request);
     if(!req) continue;
@@ -293,7 +375,7 @@ function save(){ /* server-backed */ }
 const $ = s => document.querySelector(s);
 const main = () => $('#main');
 const fmtD = ts => new Date(ts).toLocaleDateString('en-ZA',{day:'2-digit',month:'short'});
-const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function statusBadge(st){
   const map={quoting:['b-quoting','Quoting'],pending:['b-pending','Pending approval'],approved:['b-approved','Approved'],rejected:['b-rejected','Rejected'],ordered:['b-ordered','Ordered']};
   const [cls,label]=map[st]||['b-quoting',st]; return `<span class="badge ${cls}">${label}</span>`;
@@ -315,8 +397,11 @@ function recommended(r){
 function audit(r, actor, action, note){
   r.audit.unshift({ts:Date.now(), actor, action, note:note||''});
 }
-function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 3200); }
 const who = () => db.user ? db.user.name : '';
+function globalSearchHtml(){
+  return `<div class="topbar-search" id="globalSearchWrap"><span class="mag" aria-hidden="true">🔍</span><input id="globalSearch" type="search" placeholder="Search requests…" value="${esc(G_SEARCH)}" aria-label="Search requests by reference, requester, brand, department or item" oninput="setGlobalSearch(this.value)"></div>`;
+}
+window.setGlobalSearch = v => { G_SEARCH = v||''; if(['requests','buyerdesk','myreq','orders'].includes(db.view)) render(); };
 /* every role lands on its own workspace */
 const homeView = role => role==='manager' ? 'dash' : role==='purchaser' ? 'buyerdesk' : 'myreq';
 function backLabel(){ const m={dash:'Approval desk', buyerdesk:'Buyer desk', myreq:'My requests', requests:'All requests', vendors:'Vendors', catalog:'Catalog', notifications:'Alerts', users:'Staff', orders:'Purchase orders', settings:'Settings'}; return m[db.prev||homeView(db.role)]||'Back to list'; }
@@ -327,6 +412,8 @@ function go(view, id){
   if(view==='detail' && db.view && db.view!=='detail') db.prev=db.view;
   // status filter: persists across detail round-trips, resets when switching between register views
   if(view==='requests' && db.view && db.view!=='detail' && view!==db.view) REQ_FILTER='All';
+  // global search clears on view change (detail round-trips keep it so back works)
+  if(view!==db.view && view!=='detail') G_SEARCH='';
   db.view=view; db.viewId=id||null; save(); render(); }
 function render(){
   const mainEl = main();
@@ -334,7 +421,8 @@ function render(){
     document.querySelector('nav').innerHTML = '';
     document.getElementById('rolebox').innerHTML = '';
     mainEl.innerHTML = loginPage();
-    document.getElementById('liBtn').addEventListener('click', login);
+    const liBtn = document.getElementById('liBtn');
+    if(liBtn) liBtn.addEventListener('click', login);
     return;
   }
   const role = db.role;
@@ -360,9 +448,9 @@ function render(){
     ]},
   ].map(s=>({sec:s.sec, sc:s.sc, items:s.items.filter(Boolean)})).filter(s=>s.items.length);
   document.querySelector('nav').innerHTML =
-    `<button class="side-cta" id="sideNew">＋ New request</button>` +
+    `<button class="side-cta" id="sideNew" aria-label="Create a new purchase request">＋ New request</button>` +
     navSpec.map(s=>`<div class="nav-sec"><div class="nav-sec-l ${s.sc}">${s.sec}</div>${
-      s.items.map(it=>`<button class="nav-btn ${it.t}" data-v="${it.v}"><span class="nico">${it.g}</span><span class="nlab">${it.l}</span><span class="count"></span></button>`).join('')
+      s.items.map(it=>`<button class="nav-btn ${it.t}" data-v="${it.v}" aria-label="${esc(it.l)}"><span class="nico" aria-hidden="true">${it.g}</span><span class="nlab">${it.l}</span><span class="count"></span></button>`).join('')
     }</div>`).join('');
   document.getElementById('rolebox').innerHTML = userHTML();
   document.getElementById('btn-logout').addEventListener('click', logout);
@@ -370,9 +458,15 @@ function render(){
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.v===v));
   counts();
   const viewFn = views[v==='detail'?'detail':v]||views[homeView(role)]||views.dash;
-  const out = viewFn();
-  if(out instanceof Promise) out.catch(err=>{ console.error(err); toast('Load failed: '+(err.message||err)); });
+  try {
+    const out = viewFn();
+    if(out instanceof Promise) out.catch(err=>{ console.error(err); handleLoadErr(err); });
+  } catch(err) { console.error(err); handleLoadErr(err); }
   window.scrollTo({top:0});
+}
+function handleLoadErr(err){
+  if(isAuthError(err)){ logoutExpired('Session expired — please sign in again'); return; }
+  toast('Load failed: '+(err?.message||err));
 }
 function userHTML(){
   const rc = db.role==='manager'?'t-gold':db.role==='purchaser'?'t-blue':'t-green';
@@ -407,14 +501,14 @@ function counts(){
   };
   // async counts for v2 views (fire-and-forget)
   if(db.user && (db.role==='manager'||db.role==='purchaser')){
-    pb.collection('q_vendors').getFullList().then(vs=>{
+    pb.collection('q_vendors').getFullList({ requestKey: 'nav-vendors-count' }).then(vs=>{
       const b=document.querySelector('.nav-btn[data-v="vendors"] .count');
       if(b) b.textContent = vs.length||'';
-    }).catch(()=>{});
-    pb.collection('q_notifications').getFullList().then(ns=>{
+    }).catch(err=>{ if(!isAuthError(err)) console.error('vendor count failed', err); });
+    pb.collection('q_notifications').getFullList({ requestKey: 'nav-notifications-count' }).then(ns=>{
       const b=document.querySelector('.nav-btn[data-v="notifications"] .count');
       if(b) b.textContent = ns.filter(n=>!n.read).length || '';
-    }).catch(()=>{});
+    }).catch(err=>{ if(!isAuthError(err)) console.error('notification count failed', err); });
   }
   document.querySelectorAll('.nav-btn').forEach(b=>{
     const el=b.querySelector('.count'); const n=c[b.dataset.v];
@@ -488,22 +582,24 @@ views.dash = function(){
 /* ---------- requests list ---------- */
 views.requests = function(){
   const base = db.role==='requester' ? REQUESTS.filter(r=>r.requesterId===db.user.id) : REQUESTS;
-  const list = applyReqFilter(base);
-  const isFiltered = REQ_FILTER!=='All';
+  const filtered = applyReqFilter(base).filter(r=>matchesGlobalSearch(r, G_SEARCH));
+  const isFiltered = REQ_FILTER!=='All' || G_SEARCH;
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Register</div><h2>All purchase requests</h2></div>
-    <button class="btn" onclick="openNew()">＋ New request</button></div>
+    <div style="display:flex;align-items:center;gap:12px">${globalSearchHtml()}<button class="btn" onclick="openNew()">＋ New request</button></div></div>
     <div class="chipbar" id="reqChips">${statusChipsHtml(base)}</div>
-    <div class="panel"><table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Status</th><th class="right">Best total</th><th>Quotes</th><th>PO</th><th></th></tr></thead><tbody>
-    ${list.map(r=>{const b=bestTotal(r);
-      return `<tr><td><b>${r.id}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
+    <div class="panel">
+    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportRequestsCSV(applyReqFilter(base).filter(r=>matchesGlobalSearch(r, G_SEARCH)))">Export CSV</button></div>`:''}
+    <table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Status</th><th class="right">Best total</th><th>Quotes</th><th>PO</th><th></th></tr></thead><tbody>
+    ${filtered.map(r=>{const b=bestTotal(r);
+      return `<tr><td><b>${esc(r.id)}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
       <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.department)} · ${esc(r.requester)}</div></td>
       <td>${statusBadge(r.status)}</td>
       <td class="num">${b!=null?money(b):'—'}</td>
       <td class="num">${r.quotes.length}/3</td>
       <td class="num">${r.poNumber?esc(r.poNumber):'—'}</td>
       <td class="right"><button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
-    ${list.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">No ${isFiltered?esc(REQ_FILTER):''} requests${isFiltered?` — <a href="#" onclick="setReqFilter('All');return false">clear filter</a>`:''}.</div></td></tr>`}
+    ${filtered.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">${G_SEARCH?`No requests match "${esc(G_SEARCH)}".`:isFiltered?`No ${REQ_FILTER==='All'?'':esc(REQ_FILTER)+' '}requests match the current filter — <a href="#" onclick="setReqFilter('All');document.getElementById('globalSearch').value='';setGlobalSearch('');return false;">clear all filters</a>.`:'No requests yet — raise the first one with ＋ New request.'}</div></td></tr>`}
     </tbody></table></div>`;
 };
 
@@ -524,7 +620,7 @@ function filterSelectHtml(label, current, options, handler){
     </select></label>`;
 }
 views.buyerdesk = function(){
-  const scoped = buyScoped();
+  const scoped = buyScoped().filter(r=>matchesGlobalSearch(r, G_SEARCH));
   const list = BUY_FILTER==='All' ? scoped : scoped.filter(r=>r.status===BUY_FILTER);
   const stat = st => REQUESTS.filter(r=>r.status===st).length;
   const stats = `
@@ -540,10 +636,11 @@ views.buyerdesk = function(){
     if(r.status==='approved') return `<button class="btn small" onclick="go('detail','${r.pbId}')">Review &amp; raise PO</button>`;
     return `<button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button>`;
   };
+  const isFiltered = BUY_FILTER!=='All' || BUY_VENTURE!=='All' || BUY_REQUESTER!=='All' || G_SEARCH;
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Purchasing desk</div><h2>Buyer desk</h2>
     <div class="sub">Your active workspace — source three quotes per request, then raise the purchase order once the approval desk signs off. Filter by brand or requester to clear a queue.</div></div>
-    <button class="btn" onclick="openNew()">＋ New purchase request</button></div>
+    <div style="display:flex;align-items:center;gap:12px">${globalSearchHtml()}<button class="btn" onclick="openNew()">＋ New request</button></div></div>
     ${stats}
     <div class="chipbar" id="buyChips">${chipsHtml(scoped, BUY_FILTER, BUY_STATUSES, 'setBuyFilter')}</div>
     <div class="chipbar sub" id="buyFilters">
@@ -551,15 +648,17 @@ views.buyerdesk = function(){
       ${filterSelectHtml('Requester', BUY_REQUESTER, distinctRequesters(REQUESTS), 'setBuyRequester')}
       ${(BUY_VENTURE!=='All'||BUY_REQUESTER!=='All')?`<button class="chip" onclick="setBuyVenture('All');setBuyRequester('All')">✕ Clear</button>`:''}
     </div>
-    <div class="panel"><table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Requested by</th><th>What's needed</th><th>Status</th><th class="right">Quotes</th><th></th></tr></thead><tbody>
-    ${list.map(r=>`<tr><td><b>${r.id}</b>${r.poNumber?`<div class="venture">${esc(r.poNumber)}</div>`:''}<div class="venture">needed ${esc(r.neededBy)}</div></td>
+    <div class="panel">
+    ${list.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportRequestsCSV(list)">Export CSV</button></div>`:''}
+    <table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Requested by</th><th>What's needed</th><th>Status</th><th class="right">Quotes</th><th></th></tr></thead><tbody>
+    ${list.map(r=>`<tr><td><b>${esc(r.id)}</b>${r.poNumber?`<div class="venture">${esc(r.poNumber)}</div>`:''}<div class="venture">needed ${esc(r.neededBy)}</div></td>
       <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.department)}</div></td>
       <td>${esc(r.requester)}<div style="color:var(--faint);font-size:12px">${r.lines.length} line${r.lines.length>1?'s':''}</div></td>
       <td>${r.lines.map(l=>esc(l.item)+' ×'+esc(l.qty)).join('<br>')}</td>
       <td>${statusBadge(r.status)}${r.status==='quoting'&&r.quotes.length<3?`<div style="color:var(--faint);font-size:12px">${3-r.quotes.length} quote${3-r.quotes.length>1?'s':''} outstanding</div>`:''}</td>
       <td class="right num">${r.quotes.length} / 3</td>
       <td class="right">${rowAction(r)}</td></tr>`).join('')}
-    ${list.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">Nothing ${BUY_FILTER!=='All'?esc((BUY_STATUSES.find(s=>s[0]===BUY_FILTER)||[])[1]||'').toLowerCase()+' ':''}here${BUY_VENTURE!=='All'||BUY_REQUESTER!=='All'?` for the current brand/requester filter`:` — clear a filter or raise a new request`}.</div></td></tr>`}
+    ${list.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">${G_SEARCH?`No requests match "${esc(G_SEARCH)}".`:isFiltered?`Nothing ${BUY_FILTER!=='All'?esc((BUY_STATUSES.find(s=>s[0]===BUY_FILTER)||[])[1]||'').toLowerCase()+' ':''}here for the current brand/requester filter — <a href="#" onclick="setBuyVenture('All');setBuyRequester('All');setBuyFilter('All');document.getElementById('globalSearch').value='';setGlobalSearch('');return false;">clear all filters</a>.`:`Nothing on the buyer desk right now — raise a new request or wait for the approval desk.`}</div></td></tr>`}
     </tbody></table></div>`;
 };
 
@@ -580,7 +679,7 @@ window.setMySearch = function(v){
   });
   const e = document.getElementById('myNoMatch'); if(e) e.style.display = (MY_SEARCH && shown===0) ? '' : 'none';
   const c = document.getElementById('myClear');
-  if(c) c.style.display = (MY_SEARCH || MY_PERSON!=='All' || MY_DEPT!=='All' || MY_VENTURE!=='All') ? '' : 'none';
+  if(c) c.style.display = (MY_SEARCH || MY_PERSON!=='All' || MY_DEPT!=='All' || MY_VENTURE!=='All' || G_SEARCH) ? '' : 'none';
 };
 views.myreq = function(){
   const mine = REQUESTS.filter(r=>r.requesterId===db.user.id);
@@ -590,7 +689,7 @@ views.myreq = function(){
   const isBrand = MY_SCOPE==='brand';
   const base = isBrand ? brandList : mine;
   const scoped = base.filter(r=>(MY_VENTURE==='All'||r.venture===MY_VENTURE) && (MY_DEPT==='All'||r.department===MY_DEPT) && (MY_PERSON==='All'||r.requester===MY_PERSON));
-  const list = MY_FILTER==='All' ? scoped : scoped.filter(r=>r.status===MY_FILTER);
+  const list = (MY_FILTER==='All' ? scoped : scoped.filter(r=>r.status===MY_FILTER)).filter(r=>matchesGlobalSearch(r, G_SEARCH) && myHay(r).includes(MY_SEARCH.toLowerCase()));
   const cols = isBrand ? 8 : 7;
   const stats = `
     <div class="stats">
@@ -601,12 +700,13 @@ views.myreq = function(){
     </div>`;
   const stepHint = r => r.status==='quoting' ? `Purchasing sourcing quotes (${r.quotes.length}/3)`
     : r.status==='pending' ? 'With the approval desk' : r.status==='approved' ? 'Approved — PO being raised' : r.status==='rejected' ? esc(r.awardNote||'Declined') : r.poNumber ? 'Ordered' : '';
+  const isFiltered = MY_FILTER!=='All' || MY_VENTURE!=='All' || MY_DEPT!=='All' || MY_PERSON!=='All' || MY_SEARCH || G_SEARCH;
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Department desk${db.user.venture?` · ${esc(db.user.venture)}`:''}</div><h2>${isBrand?esc(brandLabel)+' requests':'My requests'}</h2>
     <div class="sub">${isBrand
       ? `Every request in flight across ${esc(brandLabel)} — check here before raising a new one so nothing gets duplicated.`
       : 'Everything you have raised, end to end — sourcing, approval, and the purchase order. Switch to the brand view to check for duplicates.'}</div></div>
-    <button class="btn" onclick="openNew()">＋ New request</button></div>
+    <div style="display:flex;align-items:center;gap:12px">${globalSearchHtml()}<button class="btn" onclick="openNew()">＋ New request</button></div></div>
     ${stats}
     <div class="chipbar" id="myScope">
       <button class="chip ${!isBrand?'active':''}" onclick="setMyScope('mine')">My requests<span class="count">${mine.length}</span></button>
@@ -616,14 +716,14 @@ views.myreq = function(){
     <div class="chipbar sub" id="myFilters">
       ${isBrand ? filterSelectHtml('Requested by', MY_PERSON, [...new Set(base.map(r=>r.requester).filter(Boolean))].sort(), 'setMyPerson') : filterSelectHtml('Brand', MY_VENTURE, distinctVentures(mine), 'setMyVenture')}
       ${filterSelectHtml('Department', MY_DEPT, [...new Set(base.map(r=>r.department).filter(Boolean))].sort(), 'setMyDept')}
-      <label class="chip search" style="cursor:text">🔍 <input placeholder="Search item, ref or person…" value="${esc(MY_SEARCH)}" oninput="setMySearch(this.value)"></label>
-      <button class="chip" id="myClear" style="display:${(MY_VENTURE!=='All'||MY_DEPT!=='All'||MY_PERSON!=='All'||MY_SEARCH)?'':'none'}" onclick="setMyVenture('All');setMyDept('All');setMyPerson('All');document.querySelector('#myFilters input').value='';setMySearch('')">✕ Clear</button>
+      <label class="chip search" style="cursor:text" aria-label="Search item, reference or person"><span aria-hidden="true">🔍</span> <input placeholder="Search item, ref or person…" value="${esc(MY_SEARCH)}" oninput="setMySearch(this.value)" aria-label="Search item, reference or person"></label>
+      <button class="chip" id="myClear" style="display:${(MY_VENTURE!=='All'||MY_DEPT!=='All'||MY_PERSON!=='All'||MY_SEARCH||G_SEARCH)?'':'none'}" onclick="setMyVenture('All');setMyDept('All');setMyPerson('All');document.querySelector('#myFilters input').value='';setMySearch('');document.getElementById('globalSearch').value='';setGlobalSearch('')">✕ Clear</button>
     </div>
     <div class="panel">
       ${isBrand?`<div class="panel-h"><h3>${esc(brandLabel)} — every request</h3><span class="hint">Duplicate check — search by item before raising a new request</span></div>`:''}
       <table><thead><tr><th>Ref</th>${isBrand?'<th>Requested by</th>':''}<th>Venture / dept</th><th>What's needed</th><th>Status</th><th class="right">Best total</th><th>PO</th><th></th></tr></thead><tbody id="myRows">
     ${list.map(r=>{const b=bestTotal(r);
-      return `<tr data-search="${esc(myHay(r))}"><td><b>${r.id}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
+      return `<tr data-search="${esc(myHay(r))}"><td><b>${esc(r.id)}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
       ${isBrand?`<td>${esc(r.requester)}${r.requesterId===db.user.id?' <span style="color:var(--gold);font-size:11px">(you)</span>':''}</td>`:''}
       <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.department)}</div></td>
       <td>${r.lines.map(l=>esc(l.item)+' ×'+esc(l.qty)).join('<br>')}${stepHint(r)?`<div style="color:var(--faint);font-size:12px">${stepHint(r)}</div>`:''}</td>
@@ -631,8 +731,7 @@ views.myreq = function(){
       <td class="num right">${b!=null?money(b):'—'}</td>
       <td class="num">${r.poNumber?esc(r.poNumber):'—'}</td>
       <td class="right"><button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
-    ${list.length?'':`<tr><td colspan="${cols}"><div class="empty" style="padding:30px">${base.length?'No requests match this filter.':(isBrand?'No requests in '+esc(brandLabel)+' yet.':'You have not raised a request yet — use ＋ New request above.')}</div></td></tr>`}
-    <tr id="myNoMatch" style="display:none"><td colspan="${cols}"><div class="empty" style="padding:26px">No requests match your search.</div></td></tr>
+    ${list.length?'':`<tr><td colspan="${cols}"><div class="empty" style="padding:30px">${base.length?(G_SEARCH||MY_SEARCH?`No requests match your search.`:`No requests match this filter — <a href="#" onclick="setMyVenture('All');setMyDept('All');setMyPerson('All');document.querySelector('#myFilters input').value='';setMySearch('');document.getElementById('globalSearch').value='';setGlobalSearch('');return false;">clear all filters</a>.`):isBrand?`No requests in ${esc(brandLabel)} yet.`:`You have not raised a request yet — use ＋ New request above.`}</div></td></tr>`}
     </tbody></table></div>
     <div class="panel"><div class="panel-h"><h3>How it works</h3></div>
       <div style="padding:16px 20px;color:var(--muted);font-size:13px;line-height:1.9">
@@ -641,7 +740,6 @@ views.myreq = function(){
       3 · The approval desk (manager) signs off — you can track every step here.<br>
       4 · The buyer raises the purchase order and pushes it to Zoho.<br>
       5 · Checking <b>${esc(brandLabel)} — all</b> first keeps the group from double-ordering the same thing.</div></div>`;
-  window.setMySearch(MY_SEARCH);
 };
 
 /* ---------- detail ---------- */
@@ -678,18 +776,20 @@ views.detail = function(){
     </div>`;}).join('');
 
   const actions = [];
-  if(r.status==='pending' && isMgr) actions.push(`<button class="btn reject" onclick="rejectReq()">Reject request…</button>`);
-  if(r.status==='approved' && (isPurch||isMgr)) actions.push(`<button class="btn" onclick="makePO(${r.winner})">Generate PO for ${esc(r.quotes[r.winner].vendor.trim())}</button>`);
+  if(r.status==='pending' && isMgr) actions.push(`<button class="btn reject" onclick="rejectReq(this)">Reject request…</button>`);
+  if(r.status==='approved' && (isPurch||isMgr)) actions.push(`<button class="btn" onclick="makePO(${r.winner}, this)">Generate PO for ${esc(r.quotes[r.winner].vendor.trim())}</button>`);
   if(r.poNumber) actions.push(`<button class="btn ghost" onclick="exportZoho('${r.pbId}')">Export Zoho payload</button>`);
   if(r.poNumber) actions.push(`<button class="btn ghost" onclick="exportCSV('${r.pbId}')">PO CSV</button>`);
+  if(r.poNumber) actions.push(`<button class="btn ghost" onclick="printPO('${r.pbId}')">Print PO</button>`);
 
   main().innerHTML = `
     <div class="crumbs" onclick="go(db.prev||'dash')">← ${backLabel()}</div>
     <div class="topbar"><div>
       <div class="kicker">${esc(r.venture)} · ${esc(r.department)}</div>
-      <h2 style="display:flex;align-items:center;gap:14px">${r.id} ${statusBadge(r.status)} ${r.status==='approved'?`<span class="stamp">Approved</span>`:''}${r.poNumber?`<span class="badge b-ordered">${r.poNumber}</span>`:''}</h2>
+      <h2 style="display:flex;align-items:center;gap:14px">${esc(r.id)} ${statusBadge(r.status)} ${r.status==='approved'?`<span class="stamp">Approved</span>`:''}${r.poNumber?`<span class="badge b-ordered">${esc(r.poNumber)}</span>`:''}</h2>
       <div class="sub">Needed by <span class="num">${esc(r.neededBy)}</span> · requested by ${esc(r.requester)}${r.notes?` — ${esc(r.notes)}`:''}</div>
-    </div><div style="display:flex;gap:10px">${actions.join('')}</div></div>
+    </div><div style="display:flex;gap:10px" id="printActions">${actions.join('')}</div></div>
+    ${r.poNumber?poPrintSheet(r):''}
     <div class="grid2">
       <div>
         ${matrix}
@@ -702,16 +802,50 @@ views.detail = function(){
           <table><tbody>${r.lines.map(l=>`<tr><td><b>${esc(l.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(l.spec||'')}</div></td><td class="num right">× ${esc(l.qty)}</td></tr>`).join('')}</tbody></table></div>
         <div class="panel"><div class="panel-h"><h3>Vendor quotes</h3><span class="hint">${r.quotes.length}/3${r.status==='quoting'?' — need 3 to submit for approval':''}</span></div>
           <div style="padding:14px" class="quote-cols">${r.quotes.map((q,vi)=>qcardMini(r,vi)).join('')}
-          ${r.quotes.length<3 && (isPurch||isMgr||db.role==='requester')?`<button class="btn small ghost" onclick="addQuote('${r.pbId}')">＋ Add quote</button>`:''}</div></div>
+          ${r.quotes.length<3 && (isPurch||isMgr||db.role==='requester')?`<button class="btn small ghost" onclick="addQuote('${r.pbId}', this)">＋ Add quote</button>`:''}</div></div>
       </div>
     </div>`;
 };
+function poPrintSheet(r){
+  const q = r.quotes[r.winner]; const t = q ? quoteTotal(q, r.lines) : null;
+  let sub=0; let rows='';
+  r.lines.forEach((l,i)=>{ const pu=rateExcl(q,i)||0; const lt=pu*(+l.qty||0); sub+=lt;
+    rows += `<tr><td>${esc(l.item)}</td><td>${esc(l.spec||'')}</td><td class="num">${esc(l.qty)}</td><td class="num">R ${money(pu).replace('R ','')}</td><td class="num right">R ${money(lt).replace('R ','')}</td></tr>`;
+  });
+  const del = +q.delivery||0; const vat = (t.total - sub - del); // approximation from existing total
+  return `<div id="poPrintSheet" style="display:none">
+    <div style="padding:30px 40px;border:1px solid #ccc;background:#fff;color:#000">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px">
+        <div><div style="font-family:var(--display);font-size:28px;font-weight:600">Quorum</div><div style="font-size:12px;color:#555">Purchase order</div></div>
+        <div style="text-align:right;font-size:13px"><div><b>${esc(r.poNumber)}</b></div><div>Ref: ${esc(r.id)}</div><div>Date: ${today()}</div></div>
+      </div>
+      <div style="margin-bottom:24px;font-size:13px">
+        <div><b>Vendor:</b> ${esc(q.vendor.trim())}</div>
+        <div><b>Deliver to:</b> ${esc(r.venture)} · ${esc(r.department)}</div>
+        <div><b>Requested by:</b> ${esc(r.requester)}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px"><thead><tr style="border-bottom:2px solid #333"><th style="text-align:left;padding:8px">Item</th><th style="text-align:left;padding:8px">Spec</th><th style="text-align:right;padding:8px">Qty</th><th style="text-align:right;padding:8px">Unit (R)</th><th style="text-align:right;padding:8px">Line total (R)</th></tr></thead><tbody>${rows}</tbody></table>
+      <div style="display:flex;justify-content:flex-end;font-size:14px">
+        <div style="width:260px">
+          <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Subtotal</span><span class="num">${money(sub)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Delivery</span><span class="num">${money(del)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #333;font-weight:600"><span>Total (VAT-incl)</span><span class="num">${t.complete?money(t.total):'—'}</span></div>
+        </div>
+      </div>
+      <div style="margin-top:30px;font-size:12px;color:#555">
+        <b>Approval trail</b><br>
+        ${r.audit.map(a=>`${new Date(a.ts).toLocaleString('en-ZA',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})} — ${esc(a.actor)}: ${esc(a.action)}${a.note?` · ${esc(a.note)}`:''}<br>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+window.printPO = id => { const r=REQUESTS.find(x=>x.pbId===id); if(!r||!r.poNumber) return; window.print(); };
 function qcardMini(r,vi){ const q=r.quotes[vi]; const t=quoteTotal(q,r.lines); const rec=recommended(r); const isRec=rec&&rec.i===vi; const isMgr=db.role==='manager';
   return `<div class="qcard" style="margin:0;padding:12px;${isRec?'border-color:var(--gold)':''}">
     <div class="vendor" style="font-size:12.5px">${isRec?'<span class="crown">◆</span>':''}${esc((q.vendor||'V'+(vi+1)).trim())}</div>
     <div class="qtotal" style="padding-top:6px"><span class="num" style="font-size:14px">${t.complete?money(t.total):'—'}</span></div>
-    ${q.doc?`<a class="doc-chip" style="margin-top:8px;display:inline-flex;max-width:100%" href="${q.doc.url}" target="_blank">📄 ${esc(q.doc.name)}</a>`:''}
-    ${isMgr && r.status==='pending' ? `<button class="btn small approve" style="margin-top:8px;width:100%" onclick="approve(${vi})">Approve</button>`:''}</div>`; }
+    ${q.doc?`<a class="doc-chip" style="margin-top:8px;display:inline-flex;max-width:100%" href="${q.doc.url}" target="_blank" aria-label="Open quote document ${esc(q.doc.name)}">📄 ${esc(q.doc.name)}</a>`:''}
+    ${isMgr && r.status==='pending' ? `<button class="btn small approve" style="margin-top:8px;width:100%" onclick="approve(${vi}, this)">Approve</button>`:''}</div>`; }
 
 /* ---------- orders ---------- */
 let ORD_VENTURE = 'All', ORD_REQUESTER = 'All';
@@ -719,11 +853,13 @@ window.setOrdVenture = v => { ORD_VENTURE=v; views.orders(); };
 window.setOrdRequester = v => { ORD_REQUESTER=v; views.orders(); };
 views.orders = function(){
   const all = REQUESTS.filter(r=>r.poNumber && (db.role!=='requester' || r.requesterId===db.user.id));
-  const ords = all.filter(r=>(ORD_VENTURE==='All'||r.venture===ORD_VENTURE) && (ORD_REQUESTER==='All'||r.requester===ORD_REQUESTER));
+  const ords = all.filter(r=>(ORD_VENTURE==='All'||r.venture===ORD_VENTURE) && (ORD_REQUESTER==='All'||r.requester===ORD_REQUESTER)).filter(r=>matchesGlobalSearch(r, G_SEARCH));
   let poValue = 0; ords.forEach(r=>{ const q=r.quotes[r.winner]; if(q){ const t=quoteTotal(q,r.lines); if(t.complete) poValue+=t.total; } });
+  const isFiltered = ORD_VENTURE!=='All' || ORD_REQUESTER!=='All' || G_SEARCH;
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">After approval</div><h2>Purchase orders</h2>
-    <div class="sub">Approved requests become POs. Filter by brand or requester to reconcile against the P&amp;L. Export the Zoho Inventory payload for direct push.</div></div></div>
+    <div class="sub">Approved requests become POs. Filter by brand or requester to reconcile against the P&amp;L. Export the Zoho Inventory payload for direct push.</div></div>
+    <div style="display:flex;align-items:center;gap:12px">${globalSearchHtml()}</div></div>
     <div class="stats">
       <div class="stat"><div class="n blue">${ords.length}</div><div class="l">POs${(ORD_VENTURE!=='All'||ORD_REQUESTER!=='All')?' (filtered)':''}</div></div>
       <div class="stat"><div class="n gold">${money(poValue)}</div><div class="l">Committed spend</div></div>
@@ -734,9 +870,11 @@ views.orders = function(){
       ${filterSelectHtml('Requester', ORD_REQUESTER, distinctRequesters(all), 'setOrdRequester')}
       ${(ORD_VENTURE!=='All'||ORD_REQUESTER!=='All')?`<button class="chip" onclick="setOrdVenture('All');setOrdRequester('All')">✕ Clear</button>`:''}
     </div>
-    ${ords.length? `<div class="panel"><table><thead><tr><th>PO</th><th>From request</th><th>Vendor</th><th>Requested by</th><th class="right">Total</th><th></th></tr></thead><tbody>
+    ${ords.length? `<div class="panel">
+      <div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportOrdersCSV(ords)">Export CSV</button></div>
+      <table><thead><tr><th>PO</th><th>From request</th><th>Vendor</th><th>Requested by</th><th class="right">Total</th><th></th></tr></thead><tbody>
     ${ords.map(r=>{const q=r.quotes[r.winner]; const t=quoteTotal(q,r.lines);
-      return `<tr><td><b>${r.poNumber}</b></td><td>${r.id}<div class="venture">${esc(r.venture)} · ${esc(r.department)}</div></td>
+      return `<tr><td><b>${esc(r.poNumber)}</b></td><td>${esc(r.id)}<div class="venture">${esc(r.venture)} · ${esc(r.department)}</div></td>
       <td>${esc(r.quotes[r.winner].vendor.trim())}</td>
       <td>${esc(r.requester)}</td><td class="num">${money(quoteTotal(q,r.lines).total)}</td>
       <td class="right" style="display:flex;gap:8px;justify-content:flex-end">
@@ -744,7 +882,7 @@ views.orders = function(){
         <button class="btn small ghost" onclick="exportCSV('${r.pbId}')">CSV</button>
         <button class="btn small" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
     </tbody></table></div>`
-    : `<div class="panel"><div class="empty" style="padding:44px"><div style="font-family:var(--display);font-size:17px;margin-bottom:6px">${all.length?'No POs match this filter':'No orders yet'}</div><div style="color:var(--muted)">${all.length?'Clear the brand/requester filter to see all purchase orders.':'Approve a request on the desk — it becomes a purchase order here.'}</div></div></div>`}`;
+    : `<div class="panel"><div class="empty" style="padding:44px"><div style="font-family:var(--display);font-size:17px;margin-bottom:6px">${all.length?'No POs match this filter':'No orders yet'}</div><div style="color:var(--muted)">${all.length?(G_SEARCH?`No POs match "${esc(G_SEARCH)}".`:isFiltered?`Clear the brand/requester filter to see all purchase orders.`:`No POs match the current filters.`):'Approve a request on the desk — it becomes a purchase order here.'}</div></div></div>`}`;
 };
 
 /* ---------- vendors (v2) — brand-tagged ---------- */
@@ -768,7 +906,10 @@ function vndBrandsHtml(v){
     : '<span style="color:var(--faint);font-size:12px">untagged</span>';
 }
 views.vendors = async function(){
-  const vendors = await pb.collection('q_vendors').getFullList().catch(()=>[]);
+  let vendors, err;
+  try{ vendors = await pb.collection('q_vendors').getFullList({ requestKey: null }); }
+  catch(e){ err=e; }
+  if(err){ main().innerHTML = errorPanel('Could not load vendors', err?.message||'Check the PocketBase server and try again.', 'views.vendors()'); return; }
   VND_CACHE = vendors;
   const tabs = ['All', ...VENTURES];
   if(!tabs.includes(VND_FILTER)) VND_FILTER = 'All';
@@ -779,11 +920,13 @@ views.vendors = async function(){
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Master data</div><h2>Vendors</h2>
     <div class="sub">Invite-ready suppliers, tagged by brand — filter to a brand to see who supplies it. Tax clearance expiry is tracked; expired clearance blocks awards over R50k.</div></div>
-    ${canEdit?`<button class="btn" onclick="addVendor()">＋ Add vendor</button>`:''}</div>
+    ${canEdit?`<button class="btn" onclick="addVendor(this)" aria-label="Add vendor">＋ Add vendor</button>`:''}</div>
     <div class="chipbar" id="vndChips">
-      ${tabs.map(b=>`<button class="chip ${VND_FILTER===b?'active':''}" data-v="${esc(b)}" onclick="setVendorFilter(this.dataset.v)">${esc(b)}${countFor(b)?`<span class="count">${countFor(b)}</span>`:''}</button>`).join('')}
+      ${tabs.map(b=>`<button class="chip ${VND_FILTER===b?'active':''}" data-v="${esc(b)}" onclick="setVendorFilter(this.dataset.v)" aria-label="Filter vendors by ${esc(b)}">${esc(b)}${countFor(b)?`<span class="count">${countFor(b)}</span>`:''}</button>`).join('')}
     </div>
-    <div class="panel"><table><thead><tr><th>Vendor</th><th>Brands</th><th>Contact</th><th>Terms</th><th>Tax clearance</th><th>Flags</th><th></th></tr></thead><tbody>
+    <div class="panel">
+    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportVendorsCSV(filtered)">Export CSV</button></div>`:''}
+    <table><thead><tr><th>Vendor</th><th>Brands</th><th>Contact</th><th>Terms</th><th>Tax clearance</th><th>Flags</th><th></th></tr></thead><tbody>
     ${filtered.map(v=>{
       const exp=v.tax_clearance_expiry? new Date(v.tax_clearance_expiry) : null;
       const expSoon = exp && (exp-new Date())<90*86400000;
@@ -795,44 +938,48 @@ views.vendors = async function(){
       <td class="num">${exp? new Date(exp).toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'}) : '—'} ${expOut?'<span class="badge b-rejected">expired</span>':expSoon?'<span class="badge b-quoting">renew soon</span>':''}</td>
       <td>${v.blacklisted?'<span class="badge b-rejected">blacklisted</span>':'<span class="badge b-approved">ok</span>'}</td>
       <td class="right" style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
-        ${canEdit?`<button class="btn small ghost" onclick="editVendorBrands('${v.id}')">Brands</button>`:''}
-        ${canEdit?`<button class="btn small ghost" onclick="toggleVendor('${v.id}', ${!v.blacklisted})">${v.blacklisted?'Unblock':'Blacklist'}</button>`:''}
-        ${canDel?`<button class="btn small reject" onclick="delVendor('${v.id}')">Remove</button>`:''}
+        ${canEdit?`<button class="btn small ghost" onclick="editVendorBrands('${v.id}', this)" aria-label="Edit brands for ${esc(v.name)}">Brands</button>`:''}
+        ${canEdit?`<button class="btn small ghost" onclick="toggleVendor('${v.id}', ${!v.blacklisted}, this)" aria-label="${v.blacklisted?'Unblock':'Blacklist'} ${esc(v.name)}"">${v.blacklisted?'Unblock':'Blacklist'}</button>`:''}
+        ${canDel?`<button class="btn small reject" onclick="delVendor('${v.id}', this)" aria-label="Remove ${esc(v.name)}">Remove</button>`:''}
       </td></tr>`;}).join('')}
-    ${filtered.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">No vendors tagged to this brand yet — tag one, or add a new vendor.</div></td></tr>`}
+    ${filtered.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">${vendors.length?'No vendors tagged to this brand yet — tag one, or add a new vendor.':'No vendors in master data yet — add the first supplier.'}</div></td></tr>`}
     </tbody></table></div>`;
 };
 window.setVendorFilter = function(v){ VND_FILTER=v; views.vendors(); };
-window.toggleVendor = async function(vid, blacklisted){
-  await pb.collection('q_vendors').update(vid, {blacklisted});
-  toast(blacklisted?'Vendor blacklisted — cannot be invited':'Vendor unblocked'); views.vendors();
+window.toggleVendor = async function(vid, blacklisted, btn){
+  if(btn){ btn.disabled=true; btn.textContent=blacklisted?'Blocking…':'Unblocking…'; }
+  try{
+    await pb.collection('q_vendors').update(vid, {blacklisted});
+    toast(blacklisted?'Vendor blacklisted — cannot be invited':'Vendor unblocked'); views.vendors();
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent=blacklisted?'Blacklist':'Unblock'; } handleWriteErr(e, 'Update failed'); }
 };
-window.delVendor = async function(vid){
+window.delVendor = async function(vid, btn){
   if(!confirm('Remove this vendor from master data?')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Removing…'; }
   try{ await pb.collection('q_vendors').delete(vid); toast('Vendor removed'); views.vendors(); }
-  catch(e){ toast('Remove failed: '+(e.message||e)); }
+  catch(e){ if(btn){ btn.disabled=false; btn.textContent='Remove'; } handleWriteErr(e, 'Remove failed'); }
 };
-window.addVendor = function(){
-  const m=document.createElement('div'); m.className='modal-bg';
-  m.innerHTML=`<div class="modal" style="width:560px"><h3 style="font-family:var(--display);font-size:20px">Add vendor</h3>
+window.addVendor = function(el){
+  FOCUS_TRIGGER = el||document.activeElement;
+  openModal(`<div class="modal" style="width:560px"><h3 style="font-family:var(--display);font-size:20px">Add vendor</h3>
     <div class="msub">Invite-ready minimal fields — never store banking details here (Zoho Books owns those). Tag the brands this vendor supplies.</div>
     <div class="form" style="grid-template-columns:1fr 1fr">
-      <div class="field full"><label>Name</label><input id="vName"></div>
-      <div class="field full"><label>Brands supplied <span style="color:var(--faint);font-weight:400">(shift-click for multiple)</span></label>${vndBrandSelect([], 4)}</div>
-      <div class="field"><label>Contact email</label><input id="vEmail"></div>
-      <div class="field"><label>Phone</label><input id="vPhone"></div>
-      <div class="field"><label>Payment terms</label><input id="vTerms" value="30 days"></div>
-      <div class="field"><label>VAT number</label><input id="vVat"></div>
-      <div class="field"><label>Tax clearance expiry</label><input type="date" id="vExp"></div>
-      <div class="field full"><label>Related party?</label><select id="vRP"><option value="no">No</option><option value="yes">Yes — owner-linked (disclosed)</option></select></div>
+      <div class="field full"><label for="vName">Name</label><input id="vName"></div>
+      <div class="field full"><label for="vBrands">Brands supplied <span style="color:var(--faint);font-weight:400">(shift-click for multiple)</span></label>${vndBrandSelect([], 4)}</div>
+      <div class="field"><label for="vEmail">Contact email</label><input id="vEmail"></div>
+      <div class="field"><label for="vPhone">Phone</label><input id="vPhone"></div>
+      <div class="field"><label for="vTerms">Payment terms</label><input id="vTerms" value="30 days"></div>
+      <div class="field"><label for="vVat">VAT number</label><input id="vVat"></div>
+      <div class="field"><label for="vExp">Tax clearance expiry</label><input type="date" id="vExp"></div>
+      <div class="field full"><label for="vRP">Related party?</label><select id="vRP"><option value="no">No</option><option value="yes">Yes — owner-linked (disclosed)</option></select></div>
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn" onclick="saveVendor()">Create vendor</button></div></div>`;
-  document.body.appendChild(m);
+      <button class="btn ghost" onclick="closeModal(); FOCUS_TRIGGER=null">Cancel</button>
+      <button class="btn" id="vSubmit" onclick="saveVendor(this)">Create vendor</button></div></div>`);
 };
-window.saveVendor = async function(){
+window.saveVendor = async function(btn){
   const brands=[...document.querySelectorAll('.vb option:checked')].map(o=>o.value);
+  if(btn){ btn.disabled=true; btn.textContent='Creating…'; }
   try{
     await pb.collection('q_vendors').create({
       name: document.getElementById('vName').value.trim(), contact_email: document.getElementById('vEmail').value.trim(),
@@ -843,28 +990,28 @@ window.saveVendor = async function(){
       related_party: document.getElementById('vRP').value==='yes',
       related_party_note: document.getElementById('vRP').value==='yes' ? 'Owner-linked entity — disclosed' : ''
     });
-    closeModal(); toast('Vendor added'+(brands.length?` — ${brands.join(', ')}`:'')); views.vendors();
-  }catch(e){ toast('Create failed: '+(e.message||e)); }
+    closeModal(); FOCUS_TRIGGER=null; toast('Vendor added'+(brands.length?` — ${brands.join(', ')}`:'')); views.vendors();
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Create vendor'; } handleWriteErr(e, 'Create failed'); }
 };
-window.editVendorBrands = function(vid){
+window.editVendorBrands = function(vid, el){
   const v=VND_CACHE.find(x=>x.id===vid); if(!v) return;
-  const m=document.createElement('div'); m.className='modal-bg';
-  m.innerHTML=`<div class="modal" style="width:520px"><h3 style="font-family:var(--display);font-size:20px">Tag brands — ${esc(v.name)}</h3>
+  FOCUS_TRIGGER = el||document.activeElement;
+  openModal(`<div class="modal" style="width:520px"><h3 style="font-family:var(--display);font-size:20px">Tag brands — ${esc(v.name)}</h3>
     <div class="msub">Which brands does this vendor supply? Shift-click for multiple. Untagged vendors stay visible under every filter.</div>
     <div class="form" style="grid-template-columns:1fr">
-      <div class="field"><label>Brands supplied</label>${vndBrandSelect(vndBrands(v), 6)}</div>
+      <div class="field"><label for="vBrands">Brands supplied</label>${vndBrandSelect(vndBrands(v), 6)}</div>
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn" onclick="saveVendorBrands('${vid}')">Save brands</button></div></div>`;
-  document.body.appendChild(m);
+      <button class="btn ghost" onclick="closeModal(); FOCUS_TRIGGER=null">Cancel</button>
+      <button class="btn" id="vbSubmit" onclick="saveVendorBrands('${vid}', this)">Save brands</button></div></div>`);
 };
-window.saveVendorBrands = async function(vid){
+window.saveVendorBrands = async function(vid, btn){
   const brands=[...document.querySelectorAll('.vb option:checked')].map(o=>o.value);
+  if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   try{
     await pb.collection('q_vendors').update(vid, {brands});
-    closeModal(); toast(brands.length?('Tagged: '+brands.join(', ')):'Brands cleared'); views.vendors();
-  }catch(e){ toast('Save failed: '+(e.message||e)); }
+    closeModal(); FOCUS_TRIGGER=null; toast(brands.length?('Tagged: '+brands.join(', ')):'Brands cleared'); views.vendors();
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Save brands'; } handleWriteErr(e, 'Save failed'); }
 };
 
 /* ---------- catalog (v2) — entity-scoped ---------- */
@@ -887,7 +1034,10 @@ function statusChipsHtml(list){ return chipsHtml(list, REQ_FILTER, REQ_STATUSES,
 const applyReqFilter = list => REQ_FILTER==='All' ? list : list.filter(r=>r.status===REQ_FILTER);
 window.setReqFilter = function(v){ REQ_FILTER=v; render(); };
 views.catalog = async function(){
-  const items = await pb.collection('q_catalog').getFullList().catch(()=>[]);
+  let items, err;
+  try{ items = await pb.collection('q_catalog').getFullList({ requestKey: null }); }
+  catch(e){ err=e; }
+  if(err){ main().innerHTML = errorPanel('Could not load catalog', err?.message||'Check the PocketBase server and try again.', 'views.catalog()'); return; }
   CAT_CACHE = items;
   // all defined ventures, plus any other entities present in the data (safety)
   const owned = [...new Set(items.map(i=>i.venture).filter(Boolean))];
@@ -900,40 +1050,43 @@ views.catalog = async function(){
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Master data</div><h2>Item catalog</h2>
     <div class="sub">Each entity keeps its own inventory list — filter by entity, then pick items. GL coding stays group-wide so spend still reconciles to the P&amp;L.</div></div>
-    ${canEdit?`<button class="btn" onclick="addCatalogItem()">＋ Add item</button>`:''}</div>
+    ${canEdit?`<button class="btn" onclick="addCatalogItem(this)" aria-label="Add catalog item">＋ Add item</button>`:''}</div>
     <div class="chipbar" id="catChips">
-      ${tabs.map(v=>`<button class="chip ${CAT_FILTER===v?'active':''}" data-v="${esc(v)}" onclick="setCatalogFilter(this.dataset.v)">${esc(v)}${countFor(v)?`<span class="count">${countFor(v)}</span>`:''}</button>`).join('')}
+      ${tabs.map(v=>`<button class="chip ${CAT_FILTER===v?'active':''}" data-v="${esc(v)}" onclick="setCatalogFilter(this.dataset.v)" aria-label="Filter catalog by ${esc(v)}">${esc(v)}${countFor(v)?`<span class="count">${countFor(v)}</span>`:''}</button>`).join('')}
     </div>
-    <div class="panel"><table><thead><tr><th>Item</th><th>Entity</th><th>Unit</th><th>GL code</th><th>GL group</th><th class="right">Est. price (VAT-excl)</th>${canDel?'<th></th>':''}</tr></thead><tbody>
+    <div class="panel">
+    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportCatalogCSV(filtered)">Export CSV</button></div>`:''}
+    <table><thead><tr><th>Item</th><th>Entity</th><th>Unit</th><th>GL code</th><th>GL group</th><th class="right">Est. price (VAT-excl)</th>${canDel?'<th></th>':''}</tr></thead><tbody>
     ${filtered.map(i=>`<tr><td><b>${esc(i.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(i.default_spec||'')}</div></td>
       <td><span class="venture">${esc(i.venture||'—')}</span></td>
       <td class="num">${esc(i.unit||'—')}</td><td class="num">${esc(i.gl_code)}</td><td>${esc(i.gl_group||'')}</td>
       <td class="num right">${money(i.est_price)}</td>
-      ${canDel?`<td class="right"><button class="btn small ghost" onclick="delCatalogItem('${i.id}')">Remove</button></td>`:''}</tr>`).join('')}
-    ${filtered.length?'':`<tr><td colspan="${canDel?7:6}"><div class="empty" style="padding:30px">No items for this entity yet.</div></td></tr>`}
+      ${canDel?`<td class="right"><button class="btn small ghost" onclick="delCatalogItem('${i.id}', this)" aria-label="Remove ${esc(i.item)}">Remove</button></td>`:''}</tr>`).join('')}
+    ${filtered.length?'':`<tr><td colspan="${canDel?7:6}"><div class="empty" style="padding:30px">${items.length?'No items for this entity yet — add the first one.':'No catalog items yet — add the first item to get started.'}</div></td></tr>`}
     </tbody></table></div>`;
 };
 window.setCatalogFilter = function(v){ CAT_FILTER=v; views.catalog(); };
-window.addCatalogItem = function(){
-  const m=document.createElement('div'); m.className='modal-bg';
+window.addCatalogItem = function(el){
+  FOCUS_TRIGGER = el||document.activeElement;
   const cur = CAT_FILTER!=='All' ? CAT_FILTER : VENTURES[0];
-  m.innerHTML=`<div class="modal" style="width:560px"><h3 style="font-family:var(--display);font-size:20px">Add catalog item</h3>
+  openModal(`<div class="modal" style="width:560px"><h3 style="font-family:var(--display);font-size:20px">Add catalog item</h3>
     <div class="msub">Codes items per entity — each venture's inventory list stays separate; GL coding stays shared.</div>
     <div class="form" style="grid-template-columns:1fr 1fr">
-      <div class="field"><label>Entity</label><select id="ciVenture">${VENTURES.map(v=>`<option ${v===cur?'selected':''}>${v}</option>`).join('')}</select></div>
-      <div class="field"><label>Unit</label><input id="ciUnit" placeholder="each / kg / bag"></div>
-      <div class="field full"><label>Item</label><input id="ciItem" placeholder="Item name"></div>
-      <div class="field full"><label>Default spec</label><input id="ciSpec" placeholder="Size, grade, material…"></div>
-      <div class="field"><label>GL code</label><input id="ciGl" placeholder="GL-EQP-001"></div>
-      <div class="field"><label>GL group</label><input id="ciGrp" placeholder="Equipment / Raw materials…"></div>
-      <div class="field"><label>Est. price (R, VAT-excl)</label><input type="number" step="0.01" id="ciPrice" placeholder="0.00"></div>
+      <div class="field"><label for="ciVenture">Entity</label><select id="ciVenture">${VENTURES.map(v=>`<option ${v===cur?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="field"><label for="ciUnit">Unit</label><input id="ciUnit" placeholder="each / kg / bag"></div>
+      <div class="field full"><label for="ciItem">Item</label><input id="ciItem" placeholder="Item name"></div>
+      <div class="field full"><label for="ciSpec">Default spec</label><input id="ciSpec" placeholder="Size, grade, material…"></div>
+      <div class="field"><label for="ciGl">GL code</label><input id="ciGl" placeholder="GL-EQP-001"></div>
+      <div class="field"><label for="ciGrp">GL group</label><input id="ciGrp" placeholder="Equipment / Raw materials…"></div>
+      <div class="field"><label for="ciPrice">Est. price (R, VAT-excl)</label><input type="number" step="0.01" id="ciPrice" placeholder="0.00"></div>
     </div>
+    <div id="ciFormErr" class="inline-err"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn" onclick="saveCatalogItem()">Add item</button></div></div>`;
-  document.body.appendChild(m);
+      <button class="btn ghost" onclick="closeModal(); FOCUS_TRIGGER=null">Cancel</button>
+      <button class="btn" id="ciSubmit" onclick="saveCatalogItem(this)">Add item</button></div></div>`);
 };
-window.saveCatalogItem = async function(){
+window.saveCatalogItem = async function(btn){
+  const errEl = document.getElementById('ciFormErr');
   const rec = {
     item: document.getElementById('ciItem').value.trim(),
     venture: document.getElementById('ciVenture').value,
@@ -943,60 +1096,42 @@ window.saveCatalogItem = async function(){
     gl_group: document.getElementById('ciGrp').value.trim(),
     est_price: +document.getElementById('ciPrice').value||0, active:true
   };
-  if(!rec.item || !rec.gl_code){ toast('Item name and GL code are required'); return; }
+  if(!rec.item || !rec.gl_code){ errEl.textContent='Item name and GL code are required.'; return; }
+  const priceErr = validatePrice(document.getElementById('ciPrice').value);
+  if(priceErr){ errEl.textContent=priceErr; return; }
+  errEl.textContent='';
+  if(btn){ btn.disabled=true; btn.textContent='Adding…'; }
   try{
     await pb.collection('q_catalog').create(rec);
-    closeModal(); CAT_FILTER = rec.venture; views.catalog(); toast('Item added to '+rec.venture);
-  }catch(e){ toast('Create failed: '+(e.message||e)); }
+    closeModal(); FOCUS_TRIGGER=null; CAT_FILTER = rec.venture; views.catalog(); toast('Item added to '+rec.venture);
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Add item'; } handleWriteErr(e, 'Create failed'); }
 };
-window.delCatalogItem = async function(id){
+window.delCatalogItem = async function(id, btn){
   if(!confirm('Remove this item from the catalog?')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Removing…'; }
   try{ await pb.collection('q_catalog').delete(id); views.catalog(); toast('Item removed'); }
-  catch(e){ toast('Delete failed: '+(e.message||e)); }
+  catch(e){ if(btn){ btn.disabled=false; btn.textContent='Remove'; } handleWriteErr(e, 'Delete failed'); }
 };
 
 /* ---------- notifications (v2) ---------- */
 views.notifications = async function(){
-  const items = await pb.collection('q_notifications').getFullList().catch(()=>[]);
+  let items, err;
+  try{ items = await pb.collection('q_notifications').getFullList({ requestKey: null }); }
+  catch(e){ err=e; }
+  if(err){ main().innerHTML = errorPanel('Could not load alerts', err?.message||'Check the PocketBase server and try again.', 'views.notifications()'); return; }
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Alerts</div><h2>Notification log</h2>
     <div class="sub">Every alert Quorum raised. Cliq DM + email fire in production; this is the system-of-record log.</div></div></div>
     ${items.length? `<div class="panel"><table><thead><tr><th>When</th><th>To</th><th>Alert</th><th></th></tr></thead><tbody>
     ${items.map(n=>`<tr><td class="num">${esc((n.created||'').slice(0,16).replace('T',' '))}</td><td>${esc(n.user_email)}</td>
       <td><b>${esc(n.title)}</b><div style="color:var(--muted);font-size:12px">${esc(n.body||'')}</div></td>
-      <td class="right">${n.link?`<a class="btn small ghost" href="${n.link}" target="_blank">Open</a>`:''}</td></tr>`).join('')}
+      <td class="right">${n.link?`<a class="btn small ghost" href="${n.link}" target="_blank" rel="noopener" aria-label="Open alert link">Open</a>`:''}</td></tr>`).join('')}
     </tbody></table></div>`
     : `<div class="panel"><div class="empty" style="padding:44px"><div class="big">No alerts yet</div><div style="color:var(--muted)">Alerts fire when tenders await your approval, bids land, or POs push.</div></div></div>`}`;
 };
 
 
 /* ---------- settings ---------- */
-views.settings = function(){
-  main().innerHTML = `
-    <div class="topbar"><div><div class="kicker">Configuration</div><h2>Settings</h2></div></div>
-    <div class="panel"><div class="panel-h"><h3>Zoho Inventory link (Phase 2)</h3></div>
-      <div style="padding:18px" class="form-col" >
-        <div class="form" style="grid-template-columns:1fr 1fr">
-          <div class="field"><label>Organisation ID</label><input id="zOrg" value="${esc(db.zohoOrg||'')}" placeholder="e.g. 7g8k9…"></div>
-          <div class="field"><label>Minimum quotes required</label><select id="qMin"><option>3</option><option>2</option></select></div>
-          <div class="field full"><label>API location ( Books/Inventory region )</label>
-            <select id="zReg"><option value="https://www.zohoapis.com/inventory/v1">zohoapis.com (US)</option>
-            <option value="https://www.zohoapis.eu/inventory/v1">zohoapis.eu (EU)</option>
-            <option value="https://www.zohoapis.in/inventory/v1">zohoapis.in (IN)</option></select></div>
-          <div class="field full" style="color:var(--muted);font-size:12.5px">Direct push needs an OAuth token with <span class="num">ZohoInventory.purchaseorders.CREATE</span> scope. Until credentials are configured, every approved PO exports a ready payload — paste-ready for the API or import.</div>
-        </div>
-      </div></div>
-    <div class="panel"><div class="panel-h"><h3>Data</h3></div>
-      <div style="padding:18px;display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn ghost" onclick="backupAll()">Export full backup (JSON)</button>
-        <label class="btn ghost" style="cursor:pointer">Import backup<input type="file" accept=".json" style="display:none" onchange="restoreAll(this)"></label>
-        <button class="btn ghost" onclick="wipe()">Reset demo data</button>
-      </div></div>`;
-  $('#zOrg').addEventListener('change',e=>{db.zohoOrg=e.target.value.trim();save();});
-  $('#zReg').addEventListener('change',e=>{db.zohoReg=e.target.value;save();});
-  if(db.zohoReg) $('#zReg').value=db.zohoReg;
-};
-
 /* ============================== actions ============================== */
 window.login = async function(){
   const email = document.getElementById('liEmail').value.trim();
@@ -1004,10 +1139,10 @@ window.login = async function(){
   const btn = document.getElementById('liBtn');
   btn.disabled = true; btn.textContent = 'Signing in…';
   try{
-    const res = await pb.collection('qp_users').authWithPassword(email, pass);
+    const res = await pb.collection('qp_users').authWithPassword(email, pass, { requestKey: null });
     const rec = res.record || res;   // SDK >=0.23 returns {record, token}
     db.user = rec; db.role = rec.role; db.view = homeView(rec.role); db.viewId = null;
-    MY_SCOPE='mine'; MY_PERSON='All'; MY_SEARCH=''; MY_FILTER='All'; MY_VENTURE='All';
+    MY_SCOPE='mine'; MY_PERSON='All'; MY_SEARCH=''; MY_FILTER='All'; MY_VENTURE='All'; G_SEARCH='';
     await loadRequests(); render();
   }catch(e){
     document.getElementById('liErr').textContent = 'Sign-in failed — check email and password.';
@@ -1016,40 +1151,40 @@ window.login = async function(){
 };
 window.logout = () => { pb.authStore.clear(); db.user=null; db.role=null; REQUESTS=[]; go('dash'); };
 
-window.openNew = function(){
-  const m=document.createElement('div'); m.className='modal-bg';
-  m.innerHTML=`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">New purchase request</h3>
-    <div class="msub">What does the department need? Purchasing will source three quotes.${db.role==='requester'?` Before raising it, check <b>${esc(db.user.venture||'your brand')} — all</b> on My requests in case a colleague already asked for the same thing.`:''}</div>
+window.openNew = function(el){
+  FOCUS_TRIGGER = el||document.activeElement;
+  openModal(`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">New purchase request</h3>
+    <div class="msub">What does the department need? Purchasing will source three quotes.${db.role==='requester'?` Before raising it, check <b>${esc(db.user.venture||'your brand')} — all</b> on My requests in case a colleague already asked for the same thing.`:'  '}</div>
     <div class="form">
-      <div class="field"><label>Venture</label><select id="nVenture" onchange="refreshNewItems()">${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
-      <div class="field"><label>Department</label><select id="nDept">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>
-      <div class="field"><label>Needed by</label><input type="date" id="nNeeded" value="${today()}"></div>
-      <div class="field"><label>Requested by</label><input id="nReq" value="${esc(db.user.name)}" readonly></div>
-      <div class="field full"><label>Notes</label><textarea id="nNotes" rows="2" placeholder="Context the approver should have"></textarea></div>
+      <div class="field"><label for="nVenture">Venture</label><select id="nVenture" onchange="refreshNewItems()">${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
+      <div class="field"><label for="nDept">Department</label><select id="nDept">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>
+      <div class="field"><label for="nNeeded">Needed by</label><input type="date" id="nNeeded" value="${today()}"></div>
+      <div class="field"><label for="nReq">Requested by</label><input id="nReq" value="${esc(db.user.name)}" readonly></div>
+      <div class="field full"><label for="nNotes">Notes</label><textarea id="nNotes" rows="2" placeholder="Context the approver should have"></textarea></div>
       <div class="field full"><label>Line items <span id="nItemHint" style="color:var(--faint);font-weight:400"></span></label>
-        <div class="lines-box"><table id="nLines"><tbody>
-          <tr><td><input placeholder="Item" class="li" list="itemList"></td><td><input placeholder="Spec (optional)" class="ls"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1"></td></tr>
+        <div class="lines-box"><table id="nLines" aria-label="Line items"><tbody>
+          <tr><td><input placeholder="Item" class="li" list="itemList" aria-label="Item"></td><td><input placeholder="Spec (optional)" class="ls" aria-label="Specification"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1" aria-label="Quantity"></td></tr>
         </tbody></table></div>
         <button class="addline" onclick="addLine()">＋ Add line</button></div>
     </div>
+    <div id="nFormErr" class="inline-err"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn" onclick="submitReq()">Submit request</button></div></div>`;
-  document.body.appendChild(m);
+      <button class="btn ghost" onclick="closeModal(); FOCUS_TRIGGER=null">Cancel</button>
+      <button class="btn" id="nSubmit" onclick="submitReq(this)">Submit request</button></div></div>`);
   refreshNewItems();
 };
 window.addLine = function(){
   const tb=document.querySelector('#nLines tbody'); const tr=document.createElement('tr');
-  tr.innerHTML=`<td><input placeholder="Item" class="li" list="itemList"></td><td><input placeholder="Spec (optional)" class="ls"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1"></td>`;
+  tr.innerHTML=`<td><input placeholder="Item" class="li" list="itemList" aria-label="Item"></td><td><input placeholder="Spec (optional)" class="ls" aria-label="Specification"></td><td style="width:90px"><input placeholder="Qty" class="lq num" value="1" aria-label="Quantity"></td>`;
   tb.appendChild(tr); tr.querySelector('input').focus();
 };
-window.closeModal = () => document.querySelectorAll('.modal-bg').forEach(m=>m.remove());
+window.closeModal = () => { document.querySelectorAll('.modal-bg').forEach(m=>m.remove()); };
 /* entity-scoped item suggestions for the new-request form */
 window.refreshNewItems = async function(){
   const vEl = document.getElementById('nVenture'); if(!vEl) return;
   const v = vEl.value;
   let items = CAT_CACHE;
-  if(!items.length){ items = await pb.collection('q_catalog').getFullList().catch(()=>[]); CAT_CACHE = items; }
+  if(!items.length){ items = await pb.collection('q_catalog').getFullList({ requestKey: 'catalog-suggest' }).catch(()=>[]); CAT_CACHE = items; }
   const list = items.filter(i=>i.active!==false && (!v || !i.venture || i.venture===v));
   let dl = document.getElementById('itemList');
   if(!dl){ dl=document.createElement('datalist'); dl.id='itemList'; document.body.appendChild(dl); }
@@ -1058,11 +1193,22 @@ window.refreshNewItems = async function(){
   if(hint) hint.textContent = `${list.length} item${list.length===1?'':'s'} in ${v||'the group'} list`;
   return list;
 };
-window.submitReq = async function(){
-  const lines=[...document.querySelector('#nLines tbody').rows].map(tr=>({
-    item:tr.querySelector('.li').value.trim(), spec:tr.querySelector('.ls').value.trim(), qty:tr.querySelector('.lq').value.trim()||'1'
-  })).filter(l=>l.item);
-  if(!lines.length){ toast('Add at least one line item'); return; }
+window.submitReq = async function(btn){
+  const errEl = document.getElementById('nFormErr');
+  const rows = [...document.querySelector('#nLines tbody').rows];
+  const lines=[]; let qtyErr=null;
+  for(const tr of rows){
+    const item = tr.querySelector('.li').value.trim();
+    if(!item) continue;
+    const qty = tr.querySelector('.lq').value.trim()||'1';
+    const qe = validateQty(qty);
+    if(qe && !qtyErr) qtyErr = `Line "${item}": ${qe}`;
+    lines.push({item, spec:tr.querySelector('.ls').value.trim(), qty});
+  }
+  if(!lines.length){ errEl.textContent='Add at least one line item.'; return; }
+  if(qtyErr){ errEl.textContent=qtyErr; return; }
+  if(btn){ btn.disabled=true; btn.textContent='Submitting…'; }
+  errEl.textContent='';
   const yr = new Date().getFullYear();
   let n = REQUESTS.filter(r=>r.id.startsWith('RQ-'+yr)).length + 1;
   let ref = `RQ-${yr}-${String(n).padStart(4,'0')}`;
@@ -1074,75 +1220,87 @@ window.submitReq = async function(){
       notes: document.getElementById('nNotes').value.trim(), status:'quoting',
       lines, audit:[{ts:new Date().toISOString(), actor:db.user.name, action:'Request created', note: lines.length+' line(s)'}]
     });
-    closeModal(); await loadRequests(); go('detail', rec.id); toast('Request '+ref+' submitted to purchasing');
-  }catch(e){ toast('Could not save request: ' + (e.message||e)); }
+    closeModal(); FOCUS_TRIGGER=null; await loadRequests(); go('detail', rec.id); toast('Request '+ref+' submitted to purchasing');
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Submit request'; } handleWriteErr(e, 'Could not save request'); }
 };
-window.addQuote = function(id){
+window.addQuote = function(id, el){
   const r=REQUESTS.find(x=>x.pbId===id); if(!r) return;
-  const m=document.createElement('div'); m.className='modal-bg';
-  m.innerHTML=`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">Attach vendor quote</h3>
+  FOCUS_TRIGGER = el||document.activeElement;
+  openModal(`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">Attach vendor quote</h3>
     <div class="msub">Quote ${r.quotes.length+1} of 3 — upload the vendor document and capture line prices.</div>
     <div class="form">
-      <div class="field full"><label>Vendor name</label><input id="qVendor" placeholder="Vendor name" list="qVendorList" autocomplete="off"><datalist id="qVendorList"></datalist>
+      <div class="field full"><label for="qVendor">Vendor name</label><input id="qVendor" placeholder="Vendor name" list="qVendorList" autocomplete="off"><datalist id="qVendorList"></datalist>
       <div id="qVendorHint" style="color:var(--faint);font-size:11.5px;margin-top:4px"></div></div>
-      <div class="field full"><label>Quote document (PDF / image)</label><input type="file" id="qDoc" accept=".pdf,image/*"></div>
-      <div class="field"><label>Delivery cost (R)</label><input type="number" id="qDel" value="0" min="0"></div>
-      <div class="field"><label>Lead time (days)</label><input type="number" id="qLead" value="3" min="0"></div>
-      <div class="field"><label>Valid until</label><input type="date" id="qValid"></div>
+      <div class="field full"><label for="qDoc">Quote document (PDF / JPG / PNG / DOCX / XLS / XLSX)</label><input type="file" id="qDoc" accept=".pdf,.jpg,.jpeg,.png,.docx,.xls,.xlsx"><div id="qDocErr" class="inline-err"></div></div>
+      <div class="field"><label for="qDel">Delivery cost (R)</label><input type="number" id="qDel" value="0" min="0"></div>
+      <div class="field"><label for="qLead">Lead time (days)</label><input type="number" id="qLead" value="3" min="0"></div>
+      <div class="field"><label for="qValid">Valid until</label><input type="date" id="qValid"></div>
       <div class="field full"><label>Line prices (unit, R — VAT status per line)</label>
-        <div class="lines-box"><table><tbody>
-        ${r.lines.map((l,i)=>`<tr><td>${esc(l.item)} ×${esc(l.qty)}</td><td style="width:110px"><input type="number" step="0.01" class="lp num" data-i="${i}" placeholder="0.00"></td><td style="width:130px"><select class="lv" data-i="${i}"><option value="excl">VAT excl</option><option value="incl">VAT incl</option><option value="zero">Zero-rated</option></select></td></tr>`).join('')}
+        <div class="lines-box"><table aria-label="Line prices"><tbody>
+        ${r.lines.map((l,i)=>`<tr><td>${esc(l.item)} ×${esc(l.qty)}</td><td style="width:110px"><input type="number" step="0.01" class="lp num" data-i="${i}" placeholder="0.00" aria-label="Price for ${esc(l.item)}"></td><td style="width:130px"><select class="lv" data-i="${i}" aria-label="VAT status for ${esc(l.item)}"><option value="excl">VAT excl</option><option value="incl">VAT incl</option><option value="zero">Zero-rated</option></select></td></tr>`).join('')}
         </tbody></table></div></div>
     </div>
+    <div id="qFormErr" class="inline-err"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn" onclick="saveQuote('${id}')">Save quote</button></div></div>`;
-  document.body.appendChild(m);
+      <button class="btn ghost" onclick="closeModal(); FOCUS_TRIGGER=null">Cancel</button>
+      <button class="btn" id="qSubmit" onclick="saveQuote('${id}', this)">Save quote</button></div></div>`);
   loadVendorSuggest(r.venture);
+  document.getElementById('qDoc').addEventListener('change', ()=>{
+    const err = validateQuoteFile(document.getElementById('qDoc').files[0]);
+    document.getElementById('qDocErr').textContent = err||'';
+  });
 };
 window.loadVendorSuggest = async function(venture){
   const dl = document.getElementById('qVendorList'); if(!dl) return;
   try{
-    const vs = (VND_CACHE && VND_CACHE.length) ? VND_CACHE : await pb.collection('q_vendors').getFullList();
+    const vs = (VND_CACHE && VND_CACHE.length) ? VND_CACHE : await pb.collection('q_vendors').getFullList({ requestKey: 'vendor-suggest' });
     if(!VND_CACHE.length) VND_CACHE = vs;
     const rel = vs.filter(v=>!v.blacklisted && (vndBrands(v).length===0 || vndBrands(v).includes(venture)));
     dl.innerHTML = rel.map(v=>`<option value="${esc(v.name)}">${vndBrands(v).length?esc(vndBrands(v).join(' · ')):'group-wide'}</option>`).join('');
     const hint = document.getElementById('qVendorHint');
     if(hint) hint.textContent = rel.length ? `${rel.length} vendor${rel.length===1?'':'s'} tagged to ${venture} (or group-wide) — start typing or pick one.` : `No vendors tagged to ${venture} yet — type the name, then tag it under Vendors.`;
-  }catch(e){}
+  }catch(e){ if(!isAuthError(e)) console.error('vendor suggest failed', e); }
 };
-window.saveQuote = async function(id){
+window.saveQuote = async function(id, btn){
   const r=REQUESTS.find(x=>x.pbId===id); if(!r) return;
+  const errEl = document.getElementById('qFormErr');
   const vendor=document.getElementById('qVendor').value.trim();
-  if(!vendor){ toast('Vendor name required'); return; }
+  if(!vendor){ errEl.textContent='Vendor name required.'; return; }
   const docInput = document.getElementById('qDoc');
-  const fd = new FormData();
-  fd.append('request', r.pbId);
-  fd.append('vendor', vendor);
-  const prices=[]; let vatMissing=false;
+  const fileErr = validateQuoteFile(docInput.files[0]);
+  if(fileErr){ errEl.textContent=fileErr; return; }
+  const prices=[]; let vatMissing=false; let priceErr=null;
   document.querySelectorAll('.lp').forEach(inp=>{
     if(inp.value!==''){
+      const pe = validatePrice(inp.value);
+      if(pe && !priceErr){ const l = r.lines[+inp.dataset.i]; priceErr = `Price for "${l?l.item:'line'}": ${pe}`; }
       const vat = (document.querySelector(`.lv[data-i="${inp.dataset.i}"]`)||{}).value || '';
       if(!vat) vatMissing=true;
       prices.push({i:+inp.dataset.i, p:+inp.value, vat});
     }
   });
-  if(!prices.length){ toast('Capture at least one line price'); return; }
-  if(vatMissing){ toast('VAT status required per priced line (excl / incl / zero-rated)'); return; }
+  if(!prices.length){ errEl.textContent='Capture at least one line price.'; return; }
+  if(vatMissing){ errEl.textContent='VAT status required per priced line (excl / incl / zero-rated).'; return; }
+  if(priceErr){ errEl.textContent=priceErr; return; }
+  errEl.textContent='';
+  const fd = new FormData();
+  fd.append('request', r.pbId);
+  fd.append('vendor', vendor);
   fd.append('prices', JSON.stringify(prices));
   fd.append('delivery', document.getElementById('qDel').value||'0');
   fd.append('lead_days', document.getElementById('qLead').value||'0');
   if(document.getElementById('qValid').value) fd.append('valid_until', document.getElementById('qValid').value+' 00:00:00.000Z');
   fd.append('uploaded_by', db.user.name);
   if(docInput.files[0]) fd.append('doc', docInput.files[0]);
+  if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   try{
-    await pb.collection('qp_quotes').create(fd);
+    await pb.collection('qp_quotes').create(fd, { requestKey: null });
     // Audit append + 3-quote flip are enforced server-side (pb_hooks/quorum.pb.js)
-    await loadRequests(); closeModal(); go('detail', id);
+    await loadRequests(); closeModal(); FOCUS_TRIGGER=null; go('detail', id);
     toast('Quote saved — ' + vendor);
-  }catch(e){ toast('Upload failed: ' + (e.message||e)); }
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Save quote'; } handleWriteErr(e, 'Upload failed'); }
 };
-window.approve = async function(vi){
+window.approve = async function(vi, btn){
   const r=REQUESTS.find(x=>x.pbId===db.viewId); if(!r) return;
   const t=quoteTotalV2(r.quotes[vi], r.lines);
   const best=bestTotalV2(r);
@@ -1155,6 +1313,7 @@ window.approve = async function(vi){
     memo=prompt('Override memo — why not the cheapest compliant bid? (required):');
     if(memo==null || !memo.trim()){ toast('Override memo required to award a non-cheapest vendor'); return; }
   }
+  if(btn){ btn.disabled=true; btn.textContent='Recording…'; }
   const alreadySigned = (r.audit||[]).some(a=>a.action && a.action.indexOf('Manager signed')===0);
   if(r.approvalBand==='countersign' && !alreadySigned){
     // first signature; owner must countersign (do NOT change status/winner yet)
@@ -1164,7 +1323,7 @@ window.approve = async function(vi){
         audit:[{ts:new Date().toISOString(), actor:db.user.name, action:'Manager signed — awaiting owner countersign', note:(memo?('Override: '+memo):'')+' | Vendor: '+r.quotes[vi].vendor.trim()}, ...(r.audit||[])]
       });
       await loadRequests(); toast('Manager signature recorded — owner countersign required'); render(); return;
-    }catch(e){ toast('Failed: '+(e.message||e)); return; }
+    }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Approve this vendor'; } handleWriteErr(e, 'Approval failed'); return; }
   }
   try{
     await pb.collection('qp_requests').update(r.pbId, {
@@ -1176,22 +1335,24 @@ window.approve = async function(vi){
     // outbox entry for PO push
     await loadRequests();
     toast('Awarded to '+r.quotes[vi].vendor.trim()+(memo?' (override memo filed)':'')); render();
-  }catch(e){ toast('Approval failed: '+(e.message||e)); }
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Approve this vendor'; } handleWriteErr(e, 'Approval failed'); }
 };
-window.rejectReq = async function(){
+window.rejectReq = async function(btn){
   const r=REQUESTS.find(x=>x.pbId===db.viewId); if(!r) return;
   const note=prompt('Rejection reason (required):');
   if(note==null) return;
+  if(btn){ btn.disabled=true; btn.textContent='Rejecting…'; }
   try{
     await pb.collection('qp_requests').update(r.pbId, {
       status:'rejected',
       audit:[{ts:new Date().toISOString(), actor:db.user.name, action:'Rejected', note:note||'No reason given'}, ...(r.audit||[])]
     });
     await loadRequests(); toast('Request rejected'); render();
-  }catch(e){ toast('Failed: '+(e.message||e)); }
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Reject request…'; } handleWriteErr(e, 'Rejection failed'); }
 };
-window.makePO = async function(wi){
+window.makePO = async function(wi, btn){
   const r=REQUESTS.find(x=>x.pbId===db.viewId); if(!r) return;
+  if(btn){ btn.disabled=true; btn.textContent='Generating…'; }
   let poN = REQUESTS.filter(x=>(x.poNumber||'').startsWith('PO-'+new Date().getFullYear())).length + 1;
   let po = `PO-${new Date().getFullYear()}-${String(poN).padStart(4,'0')}`;
   while (REQUESTS.some(x=>x.poNumber===po)) { poN += 1; po = `PO-${new Date().getFullYear()}-${String(poN).padStart(4,'0')}`; }
@@ -1214,7 +1375,7 @@ window.makePO = async function(wi){
       body:r.id+' awarded to '+q.vendor.trim()
     }).catch(ne=>{ console.warn('notif skipped:', ne.message); });
     await loadRequests(); go('orders'); toast(po+' generated — queued for Zoho');
-  }catch(e){ toast('Failed: '+(e.message||e)); }
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Generate PO for '+esc(q.vendor.trim()); } handleWriteErr(e, 'Could not generate PO'); }
 };
 window.exportZoho = function(id){
   const r=REQUESTS.find(x=>x.pbId===id); const q=r.quotes[r.winner];
@@ -1233,71 +1394,137 @@ window.exportCSV = function(id){
   let gt=0; r.lines.forEach((l,i)=>{ const pu=rateExcl(q,i)||0; const lt=pu*(+l.qty||0); gt+=lt;
     rows.push([r.poNumber,today(),q.vendor.trim(),l.item,l.spec,l.qty,pu||'',lt.toFixed(2),'','']); });
   gt+=+q.delivery||0; rows.push([r.poNumber,today(),q.vendor.trim(),'','','','','',(+q.delivery||0).toFixed(2),gt.toFixed(2)]);
-  download(r.poNumber+'.csv', rows.map(rw=>rw.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n'), 'text/csv');
+  downloadCsv(r.poNumber+'.csv', rows);
   toast('CSV exported');
+};
+window.exportRequestsCSV = function(list){
+  const rows=[['Ref','Status','Venture','Department','Requester','Needed by','Best total (R)','Quotes','PO','Notes']];
+  for(const r of list){
+    // `bestTotal` applies the brand VAT gate (a bid with no VAT status never
+    // ranks). Correct for RANKING, but as an export column it produced an
+    // empty cell for legacy rows whose bids predate the VAT field. Show the
+    // strict figure when it exists, else fall back to the arithmetic minimum
+    // so the export always carries a number when quotes do.
+    const strict = bestTotal(r);
+    let b = strict;
+    if(b==null){
+      const totals = r.quotes.map(q=>quoteTotal(q,r.lines)).filter(t=>t.complete);
+      b = totals.length ? Math.min(...totals.map(t=>t.total)) : null;
+    }
+    rows.push([r.id, r.status, r.venture, r.department, r.requester, r.neededBy,
+               b!=null?money(b).replace('R ',''):'', r.quotes.length+'/3', r.poNumber||'', r.notes]);
+  }
+  downloadCsv('requests-'+today()+'.csv', rows);
+  toast('Requests CSV exported');
+};
+window.exportOrdersCSV = function(list){
+  const rows=[['PO','Date','From request','Venture','Department','Requester','Vendor','Total (R)']];
+  for(const r of list){
+    const q=r.quotes[r.winner]; const t=q?quoteTotal(q,r.lines):null;
+    // Mirror EXACTLY what the orders register shows on screen (it prints
+    // quoteTotal().total unconditionally). Gating the export on `t.complete`
+    // made the CSV disagree with the UI: legacy quotes predating the VAT
+    // field have allVat=false, so they rendered a total on screen but
+    // exported a blank cell. One rule everywhere: if the screen shows a
+    // number, the export carries it.
+    rows.push([r.poNumber||'', today(), r.id, r.venture, r.department, r.requester,
+               q?q.vendor.trim():'', t?t.total.toFixed(2):'']);
+  }
+  downloadCsv('orders-'+today()+'.csv', rows);
+  toast('Orders CSV exported');
+};
+window.exportVendorsCSV = function(list){
+  const rows=[['Vendor','VAT number','Contact email','Phone','Payment terms','Brands','Tax clearance','Blacklisted','Related party']];
+  for(const v of list){
+    const bs = vndBrands(v);
+    rows.push([v.name, v.vat_number||'', v.contact_email||'', v.contact_phone||'', v.payment_terms||'', bs.join('; '), v.tax_clearance_expiry?(v.tax_clearance_expiry.slice(0,10)):'', v.blacklisted?'Yes':'No', v.related_party?'Yes':'No']);
+  }
+  downloadCsv('vendors-'+today()+'.csv', rows);
+  toast('Vendors CSV exported');
+};
+window.exportCatalogCSV = function(list){
+  const rows=[['Item','Entity','Unit','GL code','GL group','Est. price (R, VAT-excl)','Default spec']];
+  for(const i of list){
+    rows.push([i.item, i.venture||'—', i.unit||'', i.gl_code||'', i.gl_group||'', i.est_price!=null?i.est_price:'', i.default_spec||'']);
+  }
+  downloadCsv('catalog-'+today()+'.csv', rows);
+  toast('Catalog CSV exported');
 };
 window.backupAll = function(){ download('quorum-backup-'+today()+'.json', JSON.stringify(REQUESTS,null,2),'application/json'); toast('Backup exported'); };
 function download(name, content, type){
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click();
+  const blob = new Blob([content],{type});
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 60000);
 }
-function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 3400); }
+function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.setAttribute('role','status'); t.setAttribute('aria-live','polite'); t.setAttribute('aria-atomic','true'); t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 3400); }
 
 /* ---------- staff management (manager only) ---------- */
 views.users = async function(){
   if(db.role!=='manager'){ go('dash'); return; }
-  const users = await pb.collection('qp_users').getFullList({ sort:'name' });
+  let users, err;
+  try{ users = await pb.collection('qp_users').getFullList({ sort:'name', requestKey: null }); }
+  catch(e){ err=e; }
+  if(err){ main().innerHTML = errorPanel('Could not load staff accounts', err?.message||'Check the PocketBase server and try again.', 'views.users()'); return; }
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Administration</div><h2>Staff accounts</h2>
     <div class="sub">Who can log in, and what they see. New staff sign in with the password you set here.</div></div>
-    <button class="btn" onclick="addUser()">＋ Add staff account</button></div>
+    <button class="btn" onclick="addUser(this)" aria-label="Add staff account">＋ Add staff account</button></div>
     <div class="panel"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Venture</th><th>Status</th><th></th></tr></thead><tbody>
     ${users.map(u=>`<tr><td><b>${esc(u.name)}</b></td><td class="num">${esc(u.email)}</td>
       <td><span class="badge ${u.role==='manager'?'b-approved':u.role==='purchaser'?'b-pending':'b-quoting'}">${esc(u.role)}</span></td>
       <td>${esc(u.venture||'—')}</td>
       <td>${u.active?'<span class="badge b-approved">active</span>':'<span class="badge b-rejected">disabled</span>'}</td>
       <td class="right" style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn small ghost" onclick="toggleUser('${u.id}', ${!u.active})">${u.active?'Disable':'Enable'}</button>
-        ${u.id!==db.user.id?`<button class="btn small reject" onclick="delUser('${u.id}')">Delete</button>`:''}
+        <button class="btn small ghost" onclick="toggleUser('${u.id}', ${!u.active}, this)" aria-label="${u.active?'Disable':'Enable'} ${esc(u.name)}'s account">${u.active?'Disable':'Enable'}</button>
+        ${u.id!==db.user.id?`<button class="btn small reject" onclick="delUser('${u.id}', this)" aria-label="Delete ${esc(u.name)}'s account">Delete</button>`:''}
       </td></tr>`).join('')}
     </tbody></table></div>`;
 };
-window.addUser = function(){
-  const m=document.createElement('div'); m.className='modal-bg';
-  m.innerHTML=`<div class="modal" style="width:520px"><h3 style="font-family:var(--display);font-size:20px">Add staff account</h3>
+window.addUser = function(el){
+  FOCUS_TRIGGER = el||document.activeElement;
+  openModal(`<div class="modal" style="width:520px"><h3 style="font-family:var(--display);font-size:20px">Add staff account</h3>
     <div class="msub">They sign in with this email + password.</div>
     <div class="form" style="grid-template-columns:1fr 1fr">
-      <div class="field full"><label>Full name</label><input id="uName"></div>
-      <div class="field full"><label>Email</label><input id="uEmail" type="email"></div>
-      <div class="field"><label>Role</label><select id="uRole"><option value="requester">Requester — department</option><option value="purchaser">Purchaser — sourcing</option><option value="manager">Manager — approval</option></select></div>
-      <div class="field"><label>Venture</label><select id="uVenture"><option>All Ventures</option>${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
-      <div class="field full"><label>Temporary password</label><input id="uPass" value="" placeholder="Set a temporary password" autocomplete="new-password"></div>
+      <div class="field full"><label for="uName">Full name</label><input id="uName"></div>
+      <div class="field full"><label for="uEmail">Email</label><input id="uEmail" type="email"></div>
+      <div class="field"><label for="uRole">Role</label><select id="uRole"><option value="requester">Requester — department</option><option value="purchaser">Purchaser — sourcing</option><option value="manager">Manager — approval</option></select></div>
+      <div class="field"><label for="uVenture">Venture</label><select id="uVenture"><option>All Ventures</option>${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
+      <div class="field full"><label for="uPass">Temporary password</label><input id="uPass" value="" placeholder="Set a temporary password" autocomplete="new-password"></div>
     </div>
+    <div id="uFormErr" class="inline-err"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn" onclick="saveUser()">Create account</button></div></div>`;
-  document.body.appendChild(m);
+      <button class="btn ghost" onclick="closeModal(); FOCUS_TRIGGER=null">Cancel</button>
+      <button class="btn" id="uSubmit" onclick="saveUser(this)">Create account</button></div></div>`);
 };
-window.saveUser = async function(){
+window.saveUser = async function(btn){
+  const errEl = document.getElementById('uFormErr');
+  const rec = {
+    name: document.getElementById('uName').value.trim(),
+    email: document.getElementById('uEmail').value.trim(),
+    password: document.getElementById('uPass').value,
+    passwordConfirm: document.getElementById('uPass').value,
+    role: document.getElementById('uRole').value,
+    venture: document.getElementById('uVenture').value, active: true
+  };
+  if(!rec.name || !rec.email || !rec.password){ errEl.textContent='Name, email and password are required.'; return; }
+  errEl.textContent='';
+  if(btn){ btn.disabled=true; btn.textContent='Creating…'; }
   try{
-    await pb.collection('qp_users').create({
-      name: document.getElementById('uName').value.trim(),
-      email: document.getElementById('uEmail').value.trim(),
-      password: document.getElementById('uPass').value,
-      passwordConfirm: document.getElementById('uPass').value,
-      role: document.getElementById('uRole').value,
-      venture: document.getElementById('uVenture').value, active: true
-    });
-    closeModal(); toast('Account created'); views.users();
-  }catch(e){ toast('Create failed: '+(e.message||e)); }
+    await pb.collection('qp_users').create(rec);
+    closeModal(); FOCUS_TRIGGER=null; toast('Account created'); views.users();
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Create account'; } handleWriteErr(e, 'Create failed'); }
 };
-window.toggleUser = async function(uid, active){
-  await pb.collection('qp_users').update(uid, {active});
-  views.users();
+window.toggleUser = async function(uid, active, btn){
+  if(btn){ btn.disabled=true; btn.textContent=active?'Enabling…':'Disabling…'; }
+  try{ await pb.collection('qp_users').update(uid, {active}); views.users(); }
+  catch(e){ if(btn){ btn.disabled=false; btn.textContent=active?'Enable':'Disable'; } handleWriteErr(e, 'Update failed'); }
 };
-window.delUser = async function(uid){
+window.delUser = async function(uid, btn){
   if(!confirm('Delete this staff account?')) return;
-  await pb.collection('qp_users').delete(uid);
-  toast('Account deleted'); views.users();
+  if(btn){ btn.disabled=true; btn.textContent='Deleting…'; }
+  try{ await pb.collection('qp_users').delete(uid); toast('Account deleted'); views.users(); }
+  catch(e){ if(btn){ btn.disabled=false; btn.textContent='Delete'; } handleWriteErr(e, 'Delete failed'); }
 };
 
 /* ---------- settings ---------- */
@@ -1307,9 +1534,9 @@ views.settings = function(){
     <div class="panel"><div class="panel-h"><h3>Zoho Inventory link (Phase 2)</h3></div>
       <div style="padding:18px">
         <div class="form" style="grid-template-columns:1fr 1fr">
-          <div class="field"><label>Organisation ID</label><input id="zOrg" value="${esc(localStorage.getItem('qp_zoho_org')||'')}" placeholder="e.g. 7g8k9…"></div>
-          <div class="field"><label>Minimum quotes required</label><select id="qMin"><option>3</option><option>2</option></select></div>
-          <div class="field full"><label>API location</label>
+          <div class="field"><label for="zOrg">Organisation ID</label><input id="zOrg" value="${esc(localStorage.getItem('qp_zoho_org')||'')}" placeholder="e.g. 7g8k9…"></div>
+          <div class="field"><label for="qMin">Minimum quotes required</label><select id="qMin"><option>3</option><option>2</option></select></div>
+          <div class="field full"><label for="zReg">API location</label>
             <select id="zReg"><option value="https://www.zohoapis.com/inventory/v1">zohoapis.com (US)</option>
             <option value="https://www.zohoapis.eu/inventory/v1">zohoapis.eu (EU)</option>
             <option value="https://www.zohoapis.in/inventory/v1">zohoapis.in (IN)</option></select></div>
@@ -1327,7 +1554,8 @@ views.settings = function(){
 document.getElementById('nav').innerHTML = '';
 document.addEventListener('click', e=>{
   const b=e.target.closest('.nav-btn'); if(b){ go(b.dataset.v); return; }
-  if(e.target.closest('#sideNew')) openNew();
+  const side=e.target.closest('#sideNew');
+  if(side){ FOCUS_TRIGGER=side; openNew(side); }
 });
 document.addEventListener('keydown', e=>{
   if(e.key==='Enter' && (e.target.id==='liEmail'||e.target.id==='liPass')) login();

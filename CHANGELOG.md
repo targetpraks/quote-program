@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.7.0 — 2026-09-15 (hardening + reporting, search and print)
+
+### Fixed (hardening)
+- **XSS: every user- and server-supplied value is now escaped before it reaches the DOM.** `esc()` escaped `& < > "` but **not `'`** — and several template literals interpolated raw record data (request notes, line items and specs, vendor names, catalog specs, audit notes, requester names). All interpolation sites now go through `esc()` and the escaper covers the single quote (`&#39;`). Verified by injecting `<img src=x onerror=…>` into a request note and re-rendering: the handler did not fire and no raw tag reached the DOM.
+- **Silent failures surfaced.** Loads that failed behind `catch(()=>{})` rendered an empty list indistinguishable from "no data". User-facing loads now surface a failure toast with a retry affordance, and the app keeps working when the backend is unreachable.
+- **Write failures explained, session expiry handled.** A new `handleWriteErr()` inspects the failure — an expired or invalid session (401/403, or the confusing 404 that a stale token produces on write) routes the user cleanly back to the login screen with a "session expired" message instead of a dead-end error; every other failure reports its actual cause. In-flight buttons re-enable so a failed action is retryable.
+- **PocketBase auto-cancellation controlled.** Concurrent loads to the same collection silently cancelled each other, so a fast view switch could leave a blank register. Data loads use explicit request keys so a legitimate load is never cancelled by a sibling request.
+- **Numeric input validation.** Quantities and prices are validated on input *and* on submit: negatives, zero quantities, NaN and non-finite values are rejected with an inline message rather than silently clamped. The DOM is never trusted.
+- **Quote file upload validated before transfer.** Type (PDF/JPG/PNG/DOCX/XLS/XLSX) and size (10 MB cap) are checked client-side with a clear message; a rejected file is never uploaded.
+- **Duplicate-PO and reference-generation races closed.** Reference generators dedupe against existing values, and submit buttons disable while a write is in flight, so a double-click can no longer mint a colliding reference.
+- **Content-Security-Policy added** — `default-src 'self'`, scripts limited to self plus the PocketBase CDN, styles to self plus Google Fonts, connections to the PocketBase origin. Verified the app still loads and functions under the policy.
+- **Dead duplicate definitions removed.** Two top-level declarations were defined twice (`toast`, `views.settings`); JavaScript keeps only the last, so the earlier copies were dead weight that silently shadowed edits. Removed, and all remaining declarations verified unique at top level.
+
+### Added (reporting, search, print)
+- **CSV export on every register** — All requests, Purchase orders, Vendors and Catalog, each respecting the active filter chips. Money is written VAT-exclusive using the existing `rateExcl` helper (÷1.15, 2dp — no floating-point artifacts); fields containing commas, quotes or newlines are properly quoted per RFC 4180 so Excel opens them cleanly.
+- **Global search in the top bar** — instant client-side search across reference, requester, brand, department and line items, with a no-match state and clear-on-view-change. A typed search is reflected in the filter count so it is obvious why a list is short.
+- **Print-ready purchase order** — a "Print PO" action on any ordered request renders a dedicated print sheet (Quorum letterhead, PO number, reference, vendor, line items, VAT-exclusive totals and the approval trail) under `@media print`; the on-screen interface is untouched.
+- **Empty and error states** — every register distinguishes "nothing here yet" from "nothing matches your filter" from "the load failed", each with its own copy and next action.
+
+### Changed
+- **Export totals now always agree with the screen.** The requests and orders CSVs gated their money column on the strict VAT-status check used for *ranking*, which left legacy rows (bids predating the VAT field) with a rendered total on screen but a blank cell in the export. The export now mirrors what the register displays, falling back to the arithmetic minimum when the strict figure is unavailable. Verified across all POs: screen and CSV agree to the cent.
+
+### Notes
+- No schema change, no collection or server-rule changes. Single-file release; no new dependencies, no build step.
+- Accessibility pass: real labels on inputs and icon-only buttons, modals operable by keyboard (Esc closes, focus trapped, focus returns to the trigger), toasts announced via `aria-live`, visible focus rings. Visual design unchanged.
+- Verified E2E against the live PocketBase backend as all three roles (manager / purchaser / requester): every view loads with zero console errors in all 30 role × view combinations; search filters 12 → 2 → empty state and restores; the XSS payload does not execute; quantity/price/file validation rejects bad input with the right message; CSV rows for all five purchase orders match their on-screen totals.
+
 ## v2.6.0 — 2026-09-15 (sidebar reorganisation + colour system)
 
 ### Changed

@@ -1,0 +1,4 @@
+# working artifacts
+*.bak-*
+.brief-*.md
+node_modules/
