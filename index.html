@@ -277,11 +277,15 @@ function audit(r, actor, action, note){
 }
 function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 3200); }
 const who = () => db.user ? db.user.name : '';
-function backLabel(){ const m={dash: db.role==='manager'?'Approval desk':'Dashboard', requests:'All requests', quotes:'Quoting queue', orders:'Purchase orders', vendors:'Vendors', catalog:'Catalog', notifications:'Alerts', users:'Staff', settings:'Settings'}; return m[db.prev||'dash']||'Back to list'; }
+function backLabel(){ const m={dash: db.role==='manager'?'Approval desk':'Dashboard', requests:'All requests', quotes:'Pipeline', orders:'Purchase orders', vendors:'Vendors', catalog:'Catalog', notifications:'Alerts', users:'Staff', settings:'Settings'}; return m[db.prev||'dash']||'Back to list'; }
 
 /* ============================== views ============================== */
 const views = {};
-function go(view, id){ if(view==='detail' && db.view && db.view!=='detail') db.prev=db.view; db.view=view; db.viewId=id||null; save(); render(); }
+function go(view, id){
+  if(view==='detail' && db.view && db.view!=='detail') db.prev=db.view;
+  // status filter: persists across detail round-trips, resets when switching between register views
+  if(['requests','quotes'].includes(view) && db.view && db.view!=='detail' && view!==db.view) REQ_FILTER='All';
+  db.view=view; db.viewId=id||null; save(); render(); }
 function render(){
   const mainEl = main();
   if(!db.user){
@@ -295,7 +299,7 @@ function render(){
   const navDef = [
     role==='manager'  && ['dash','◈ Approval desk'],
     ['requests','All requests'],
-    role==='purchaser' && ['quotes','Quoting queue'],
+    role==='purchaser' && ['quotes','Pipeline'],
     ['vendors','Vendors'],
     ['catalog','Catalog'],
     role!=='requester' && ['notifications','Alerts'],
@@ -400,10 +404,13 @@ views.dash = function(){
 
 /* ---------- requests list ---------- */
 views.requests = function(){
-  const list = db.role==='requester' ? REQUESTS.filter(r=>r.requesterId===db.user.id) : REQUESTS;
+  const base = db.role==='requester' ? REQUESTS.filter(r=>r.requesterId===db.user.id) : REQUESTS;
+  const list = applyReqFilter(base);
+  const isFiltered = REQ_FILTER!=='All';
   main().innerHTML = `
     <div class="topbar"><div><div class="kicker">Register</div><h2>All purchase requests</h2></div>
     <button class="btn" onclick="openNew()">＋ New request</button></div>
+    <div class="chipbar" id="reqChips">${statusChipsHtml(base)}</div>
     <div class="panel"><table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Status</th><th class="right">Best total</th><th>Quotes</th><th>PO</th><th></th></tr></thead><tbody>
     ${list.map(r=>{const b=bestTotal(r);
       return `<tr><td><b>${r.id}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
@@ -413,21 +420,27 @@ views.requests = function(){
       <td class="num">${r.quotes.length}/3</td>
       <td class="num">${r.poNumber?esc(r.poNumber):'—'}</td>
       <td class="right"><button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
+    ${list.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">No ${isFiltered?esc(REQ_FILTER):''} requests${isFiltered?` — <a href="#" onclick="setReqFilter('All');return false">clear filter</a>`:''}.</div></td></tr>`}
     </tbody></table></div>`;
 };
 
 /* ---------- quoting queue (purchaser) ---------- */
 views.quotes = function(){
-  const open = REQUESTS.filter(r=>['quoting','pending'].includes(r.status));
+  const base = REQUESTS;
+  const list = applyReqFilter(base);
+  const isFiltered = REQ_FILTER!=='All';
   main().innerHTML = `
-    <div class="topbar"><div><div class="kicker">Purchasing</div><h2>Outstanding &amp; awaiting approval</h2>
-    <div class="sub">Everything open in the pipeline — source three quotes, upload documents, capture line prices.</div></div>
+    <div class="topbar"><div><div class="kicker">Purchasing</div><h2>Request pipeline</h2>
+    <div class="sub">Everything in the purchasing pipeline — filter by status to pick up each request where it left off.</div></div>
     <button class="btn" onclick="openNew()">＋ New purchase request</button></div>
+    <div class="chipbar" id="reqChips">${statusChipsHtml(base)}</div>
     <div class="panel"><table><thead><tr><th>Ref</th><th>What's needed</th><th>Status</th><th class="right">Quotes</th><th></th></tr></thead><tbody>
-    ${open.map(r=>`<tr><td><b>${r.id}</b><div class="venture">${esc(r.venture)}</div></td>
+    ${list.map(r=>`<tr><td><b>${r.id}</b><div class="venture">${esc(r.venture)}</div></td>
       <td>${r.lines.map(l=>esc(l.item)+' ×'+esc(l.qty)).join('<br>')}</td>
+      <td>${statusBadge(r.status)}</td>
       <td class="right num">${r.quotes.length} / 3</td>
       <td class="right"><button class="btn small" onclick="go('detail','${r.pbId}')">${r.status==='quoting'?'Attach quotes':'Review'}</button></td></tr>`).join('')}
+    ${list.length?'':`<tr><td colspan="5"><div class="empty" style="padding:30px">No ${isFiltered?esc(REQ_FILTER):''} requests in the pipeline${isFiltered?` — <a href="#" onclick="setReqFilter('All');return false">clear filter</a>`:''}.</div></td></tr>`}
     </tbody></table></div>`;
 };
 
@@ -580,6 +593,21 @@ window.saveVendor = async function(){
 /* ---------- catalog (v2) — entity-scoped ---------- */
 let CAT_FILTER = 'All';
 let CAT_CACHE = [];
+
+/* ---------- request filters — status chips (registers + queue) ---------- */
+let REQ_FILTER = 'All';
+const REQ_STATUSES = [
+  ['All','All'], ['quoting','Quoting'], ['pending','Pending'], ['approved','Approved'], ['rejected','Rejected'], ['ordered','Ordered']
+];
+function statusChipsHtml(list){
+  const counts = {}; list.forEach(r=>{ counts[r.status]=(counts[r.status]||0)+1; });
+  return REQ_STATUSES.map(([v,l])=>{
+    const n = v==='All' ? list.length : (counts[v]||0);
+    return `<button class="chip ${REQ_FILTER===v?'active':''}" data-v="${v}" onclick="setReqFilter(this.dataset.v)">${l}${n?`<span class="count">${n}</span>`:''}</button>`;
+  }).join('');
+}
+const applyReqFilter = list => REQ_FILTER==='All' ? list : list.filter(r=>r.status===REQ_FILTER);
+window.setReqFilter = function(v){ REQ_FILTER=v; render(); };
 views.catalog = async function(){
   const items = await pb.collection('q_catalog').getFullList().catch(()=>[]);
   CAT_CACHE = items;

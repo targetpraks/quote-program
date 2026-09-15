@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.2.0 — 2026-09-15 (status filters on the registers)
+
+### Added
+- **Status filter chips on the request registers.** *All requests* and the purchaser *Pipeline* now carry a chip bar — All / Quoting / Pending / Approved / Rejected / Ordered — with live per-status counts and one-click filtering. Counts respect role scoping (a requester's chips count only their own requests).
+- **Empty states with a clear-filter escape** when a status has no records ("No rejected requests — clear filter").
+- **Status badge column in the purchaser pipeline** — the queue previously showed only progress counts; status is now explicit per row, and the view title/scope reflects it ("Request pipeline", full lifecycle rather than only the open subset).
+
+### Notes
+- Filter scope: persists across a detail-view round-trip (open a request → back keeps the chip); resets to All when switching between register views.
+- Uses the existing catalog chip design language — no new styles.
+
 ## v2.1.0 — 2026-09-15 (entity-scoped catalog + manager capture)
 
 ### Added
