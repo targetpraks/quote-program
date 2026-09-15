@@ -4,6 +4,8 @@
 
 The app is a single file — `index.html`: the hardened PocketBase-backed build with real staff auth (requester / purchaser / manager), server-side 3-quote flip, duplicate-PO guards, VAT-normalised exports, back navigation, requester scoping. Live (renders): <https://targetpraks.github.io/quote-program/>.
 
+**v2.8.0 (2026-09-15) — design system and interface lift.** The interface is now documented as a formal design system in **`DESIGN.md`** (Google's DESIGN.md spec: tokens + rationale, lint-clean; Tailwind and DTCG exports committed as `tailwind.theme.json` / `tokens.json`). The canvas lifts out of near-black (`#0B0F1A` → `#1B2438`, ~3.7x luminance) into a lit midnight navy, and contrast improves as it does: faint metadata text moves 2.92:1 → 5.05:1, primary ink 11.9:1, every badge ≥4.68:1. A pre-existing horizontal overflow at ≤960px (which clipped the action column of every register on tablets) is fixed — panels now scroll inside their card. The build version shows in the sidebar.
+
 **v2.7.0 (2026-09-15) — hardening and reporting.** Escaping is complete (`esc()` now covers `'`, and every interpolation of record data goes through it), loads no longer fail silently, expired sessions route cleanly back to login, quantity/price/file inputs are validated before use, and a Content-Security-Policy is in force. On top of that: CSV export on every register (filter-aware, VAT-exclusive, Excel-clean), global search across requests, a print-ready purchase order, and distinct empty/error states.
 
 *(History: `index.html` is this single version since 2026-09-15 — it replaced the original static v1 build, which remains recoverable in git history.)*

@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.8.0 — 2026-09-15 (design system + interface lift)
+
+### Added
+- **A formal design system — `DESIGN.md`** (Google DESIGN.md spec, Apache-2.0). 22 colour tokens, 10 type scales, 4 radii, 6 spacing steps, 22 components, with prose rationale. Lints clean (`npx @google/design.md lint` → 0 errors, 0 warnings). Exports committed alongside it: `tailwind.theme.json` (Tailwind v3) and `tokens.json` (W3C DTCG).
+- **Build version on screen** — "Quorum v2.8.0" now shows in the sidebar account block and in Settings. Three copies of this file exist (canonical, `pb_public`, GitHub Pages); the version tag makes a stale copy obvious before anyone debugs it.
+- **`theme-color` meta** (`#1B2438`) so mobile browser chrome matches the canvas.
+
+### Changed
+- **The canvas is no longer near-black.** The v2.7 stack (`#0B0F1A` canvas, relative luminance 0.005) read as "switched off" — panels and page ground were indistinguishable in peripheral vision, and long approval sessions were fatiguing. The surface stack is lifted to a lit midnight navy: canvas `#1B2438` (luminance 0.018, ~3.7x), panels `#232F4D` (~2.8x), sidebar/inputs `#1F2A44` (~3.1x), plus a new `surface-raised` step (`#2A3757`) for hover and active states.
+- **Contrast went up, not down.** Measured on the panel surface: primary ink 11.9:1, muted 6.86:1, **faint 5.05:1 (was 2.92:1 — the old value failed WCAG AA on metadata text)**, brass accent 7.62:1. Every status badge measures ≥4.68:1; every nav count pill ≥8.13:1; button ink on brass 10.6:1. Nothing in the interface now sits below 4.5:1.
+- **The accent set is documented and finite.** Six destination tones (gold/blue/green/teal/amber/violet) each carry icon, hover edge, active pill and count badge. Brass marks exactly one thing per region — the next action; the rule is written down in `DESIGN.md` so it survives future edits.
+- **Destructive actions are no longer filled.** Rejection stays red *text* on a surface with a red-tinted border; a filled red button in an approval flow invites mis-clicks on the most consequential action in the app.
+- **Depth is surface steps and rules, not shadows.** Shadows are now reserved for toasts and the sidebar CTA — the two things that genuinely float.
+- CSS variable names are unchanged (`--obsidian`, `--panel`, `--panel2` resolve to the new tokens as legacy aliases), so every existing rule and inline style resolves exactly as before.
+
+### Fixed
+- **Pre-existing horizontal overflow at ≤960px.** The single-column app track could not shrink, so at a 780px viewport the document measured 1137px wide with 98 overflowing elements — **the last column of every register (the action buttons) was clipped and unreachable on tablets**. This predates the redesign (v2.7 and v2.8 measured identically before the fix). The mobile track now uses `minmax(0,1fr)`, the aside `min-width:0`, the nav `max-width:100%`, and register panels scroll **inside their card** rather than pushing the page wide. Verified: 780px → scrollWidth 780; 420px → scrollWidth 420 with the card scrollable; 1440px desktop unchanged.
+
+### Notes
+- No schema change, no collection or server-rule change, no new dependency, no build step. Single file, plain ES, one inline script block.
+- Print output is untouched — the PO sheet stays light (`#000` on `#FFF`) because it leaves the screen for paper.
+- Verified: `design.md lint` 0/0; full contrast matrix computed programmatically (zero failures); E2E across all 20 role × view combinations (manager 8 / purchaser 7 / requester 5) with zero console errors; detail view with matrix + print sheet; modal open/close; chip filter (12 → 2 → 12 rows); global search ("sawdust" → 2 rows); CSV quoting helpers; responsive check at 420 / 780 / 1440px.
+- PRD: `Work/3.PRD/Active/Quote-Program/PRD-v2.8-UI-Design-System.md` (vault).
+
 ## v2.7.0 — 2026-09-15 (hardening + reporting, search and print)
 
 ### Fixed (hardening)
