@@ -169,8 +169,8 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
 <script>
 /* ============================== state ============================== */
 const PB_URL = 'http://127.0.0.1:8090';
-const pb = new PocketBase(PB_URL);
 const OWNER_EMAIL = 'you@example.com'; // PO notification recipient — set to your owner/finance inbox
+const pb = new PocketBase(PB_URL);
 const VENTURES = ['Infinity Brands','The Local Farmer','Papa Pasta','INFX Media','INFX Solutions','INFX Labs','FluxFlow','ACDC Express'];
 const DEPTS = ['Operations','Purchasing','Sales & Marketing','Finance','Production','Logistics','Admin','IT'];
 const money = n => 'R ' + (Math.round((+n||0)*100)/100).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -514,51 +514,84 @@ views.buyerdesk = function(){
 };
 
 /* ---------- my requests (requester workspace) ---------- */
-let MY_FILTER = 'All', MY_VENTURE = 'All', MY_DEPT = 'All';
+let MY_FILTER = 'All', MY_VENTURE = 'All', MY_DEPT = 'All', MY_SCOPE = 'mine', MY_PERSON = 'All', MY_SEARCH = '';
+const myHay = r => [r.id, r.requester, r.venture, r.department, ...r.lines.map(l=>l.item+' '+(l.spec||''))].join(' ').toLowerCase();
 window.setMyFilter = v => { MY_FILTER=v; render(); };
 window.setMyVenture = v => { MY_VENTURE=v; render(); };
 window.setMyDept = v => { MY_DEPT=v; render(); };
+window.setMyScope = v => { MY_SCOPE=v; MY_VENTURE='All'; MY_PERSON='All'; MY_SEARCH=''; MY_FILTER='All'; render(); };
+window.setMyPerson = v => { MY_PERSON=v; render(); };
+window.setMySearch = function(v){
+  MY_SEARCH = v || '';
+  let shown = 0;
+  document.querySelectorAll('#myRows tr[data-search]').forEach(tr=>{
+    const m = !MY_SEARCH || tr.dataset.search.includes(MY_SEARCH.toLowerCase());
+    tr.style.display = m ? '' : 'none'; if(m) shown++;
+  });
+  const e = document.getElementById('myNoMatch'); if(e) e.style.display = (MY_SEARCH && shown===0) ? '' : 'none';
+  const c = document.getElementById('myClear');
+  if(c) c.style.display = (MY_SEARCH || MY_PERSON!=='All' || MY_DEPT!=='All' || MY_VENTURE!=='All') ? '' : 'none';
+};
 views.myreq = function(){
   const mine = REQUESTS.filter(r=>r.requesterId===db.user.id);
-  const scoped = mine.filter(r=>(MY_VENTURE==='All'||r.venture===MY_VENTURE) && (MY_DEPT==='All'||r.department===MY_DEPT));
+  const brandScope = db.user.venture && db.user.venture !== 'All Ventures' ? db.user.venture : null;
+  const brandList = brandScope ? REQUESTS.filter(r=>r.venture===brandScope) : REQUESTS;
+  const brandLabel = brandScope || 'Group';
+  const isBrand = MY_SCOPE==='brand';
+  const base = isBrand ? brandList : mine;
+  const scoped = base.filter(r=>(MY_VENTURE==='All'||r.venture===MY_VENTURE) && (MY_DEPT==='All'||r.department===MY_DEPT) && (MY_PERSON==='All'||r.requester===MY_PERSON));
   const list = MY_FILTER==='All' ? scoped : scoped.filter(r=>r.status===MY_FILTER);
+  const cols = isBrand ? 8 : 7;
   const stats = `
     <div class="stats">
-      <div class="stat"><div class="n">${mine.filter(r=>r.status==='quoting').length}</div><div class="l">In sourcing</div></div>
-      <div class="stat"><div class="n gold">${mine.filter(r=>r.status==='pending').length}</div><div class="l">Awaiting approval</div></div>
-      <div class="stat"><div class="n">${mine.filter(r=>['approved','ordered'].includes(r.status)).length}</div><div class="l">Approved / ordered</div></div>
-      <div class="stat"><div class="n">${mine.filter(r=>r.poNumber).length}</div><div class="l">My POs issued</div></div>
+      <div class="stat"><div class="n">${base.filter(r=>r.status==='quoting').length}</div><div class="l">In sourcing</div></div>
+      <div class="stat"><div class="n gold">${base.filter(r=>r.status==='pending').length}</div><div class="l">Awaiting approval</div></div>
+      <div class="stat"><div class="n">${base.filter(r=>['approved','ordered'].includes(r.status)).length}</div><div class="l">Approved / ordered</div></div>
+      <div class="stat"><div class="n">${base.filter(r=>r.poNumber).length}</div><div class="l">${isBrand?'POs issued — brand':'My POs issued'}</div></div>
     </div>`;
   const stepHint = r => r.status==='quoting' ? `Purchasing sourcing quotes (${r.quotes.length}/3)`
     : r.status==='pending' ? 'With the approval desk' : r.status==='approved' ? 'Approved — PO being raised' : r.status==='rejected' ? esc(r.awardNote||'Declined') : r.poNumber ? 'Ordered' : '';
   main().innerHTML = `
-    <div class="topbar"><div><div class="kicker">Department desk${db.user.venture?` · ${esc(db.user.venture)}`:''}</div><h2>My requests</h2>
-    <div class="sub">Everything you have raised, end to end — sourcing, approval, and the purchase order. Filter to find any request you logged.</div></div>
+    <div class="topbar"><div><div class="kicker">Department desk${db.user.venture?` · ${esc(db.user.venture)}`:''}</div><h2>${isBrand?esc(brandLabel)+' requests':'My requests'}</h2>
+    <div class="sub">${isBrand
+      ? `Every request in flight across ${esc(brandLabel)} — check here before raising a new one so nothing gets duplicated.`
+      : 'Everything you have raised, end to end — sourcing, approval, and the purchase order. Switch to the brand view to check for duplicates.'}</div></div>
     <button class="btn" onclick="openNew()">＋ New request</button></div>
     ${stats}
+    <div class="chipbar" id="myScope">
+      <button class="chip ${!isBrand?'active':''}" onclick="setMyScope('mine')">My requests<span class="count">${mine.length}</span></button>
+      <button class="chip ${isBrand?'active':''}" onclick="setMyScope('brand')">${esc(brandLabel)} — all<span class="count">${brandList.length}</span></button>
+    </div>
     <div class="chipbar" id="myChips">${chipsHtml(scoped, MY_FILTER, REQ_STATUSES, 'setMyFilter')}</div>
     <div class="chipbar sub" id="myFilters">
-      ${filterSelectHtml('Brand', MY_VENTURE, distinctVentures(mine), 'setMyVenture')}
-      ${filterSelectHtml('Department', MY_DEPT, [...new Set(mine.map(r=>r.department).filter(Boolean))].sort(), 'setMyDept')}
-      ${(MY_VENTURE!=='All'||MY_DEPT!=='All')?`<button class="chip" onclick="setMyVenture('All');setMyDept('All')">✕ Clear</button>`:''}
+      ${isBrand ? filterSelectHtml('Requested by', MY_PERSON, [...new Set(base.map(r=>r.requester).filter(Boolean))].sort(), 'setMyPerson') : filterSelectHtml('Brand', MY_VENTURE, distinctVentures(mine), 'setMyVenture')}
+      ${filterSelectHtml('Department', MY_DEPT, [...new Set(base.map(r=>r.department).filter(Boolean))].sort(), 'setMyDept')}
+      <label class="chip search" style="cursor:text">🔍 <input placeholder="Search item, ref or person…" value="${esc(MY_SEARCH)}" oninput="setMySearch(this.value)"></label>
+      <button class="chip" id="myClear" style="display:${(MY_VENTURE!=='All'||MY_DEPT!=='All'||MY_PERSON!=='All'||MY_SEARCH)?'':'none'}" onclick="setMyVenture('All');setMyDept('All');setMyPerson('All');document.querySelector('#myFilters input').value='';setMySearch('')">✕ Clear</button>
     </div>
-    <div class="panel"><table><thead><tr><th>Ref</th><th>Venture / dept</th><th>What I asked for</th><th>Status</th><th class="right">Best total</th><th>PO</th><th></th></tr></thead><tbody>
+    <div class="panel">
+      ${isBrand?`<div class="panel-h"><h3>${esc(brandLabel)} — every request</h3><span class="hint">Duplicate check — search by item before raising a new request</span></div>`:''}
+      <table><thead><tr><th>Ref</th>${isBrand?'<th>Requested by</th>':''}<th>Venture / dept</th><th>What's needed</th><th>Status</th><th class="right">Best total</th><th>PO</th><th></th></tr></thead><tbody id="myRows">
     ${list.map(r=>{const b=bestTotal(r);
-      return `<tr><td><b>${r.id}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
+      return `<tr data-search="${esc(myHay(r))}"><td><b>${r.id}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
+      ${isBrand?`<td>${esc(r.requester)}${r.requesterId===db.user.id?' <span style="color:var(--gold);font-size:11px">(you)</span>':''}</td>`:''}
       <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.department)}</div></td>
       <td>${r.lines.map(l=>esc(l.item)+' ×'+esc(l.qty)).join('<br>')}${stepHint(r)?`<div style="color:var(--faint);font-size:12px">${stepHint(r)}</div>`:''}</td>
       <td>${statusBadge(r.status)}</td>
       <td class="num right">${b!=null?money(b):'—'}</td>
       <td class="num">${r.poNumber?esc(r.poNumber):'—'}</td>
       <td class="right"><button class="btn small ghost" onclick="go('detail','${r.pbId}')">Open</button></td></tr>`;}).join('')}
-    ${list.length?'':`<tr><td colspan="7"><div class="empty" style="padding:30px">${mine.length?'No requests match this filter.':'You have not raised a request yet — use ＋ New request above.'}</div></td></tr>`}
+    ${list.length?'':`<tr><td colspan="${cols}"><div class="empty" style="padding:30px">${base.length?'No requests match this filter.':(isBrand?'No requests in '+esc(brandLabel)+' yet.':'You have not raised a request yet — use ＋ New request above.')}</div></td></tr>`}
+    <tr id="myNoMatch" style="display:none"><td colspan="${cols}"><div class="empty" style="padding:26px">No requests match your search.</div></td></tr>
     </tbody></table></div>
     <div class="panel"><div class="panel-h"><h3>How it works</h3></div>
       <div style="padding:16px 20px;color:var(--muted);font-size:13px;line-height:1.9">
       1 · You raise a request with what is needed and the GL-coded lines.<br>
       2 · Purchasing sources three quotes against it.<br>
       3 · The approval desk (manager) signs off — you can track every step here.<br>
-      4 · The buyer raises the purchase order and pushes it to Zoho.</div></div>`;
+      4 · The buyer raises the purchase order and pushes it to Zoho.<br>
+      5 · Checking <b>${esc(brandLabel)} — all</b> first keeps the group from double-ordering the same thing.</div></div>`;
+  window.setMySearch(MY_SEARCH);
 };
 
 /* ---------- detail ---------- */
@@ -924,6 +957,7 @@ window.login = async function(){
     const res = await pb.collection('qp_users').authWithPassword(email, pass);
     const rec = res.record || res;   // SDK >=0.23 returns {record, token}
     db.user = rec; db.role = rec.role; db.view = homeView(rec.role); db.viewId = null;
+    MY_SCOPE='mine'; MY_PERSON='All'; MY_SEARCH=''; MY_FILTER='All'; MY_VENTURE='All';
     await loadRequests(); render();
   }catch(e){
     document.getElementById('liErr').textContent = 'Sign-in failed — check email and password.';
@@ -935,7 +969,7 @@ window.logout = () => { pb.authStore.clear(); db.user=null; db.role=null; REQUES
 window.openNew = function(){
   const m=document.createElement('div'); m.className='modal-bg';
   m.innerHTML=`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">New purchase request</h3>
-    <div class="msub">What does the department need? Purchasing will source three quotes.</div>
+    <div class="msub">What does the department need? Purchasing will source three quotes.${db.role==='requester'?` Before raising it, check <b>${esc(db.user.venture||'your brand')} — all</b> on My requests in case a colleague already asked for the same thing.`:''}</div>
     <div class="form">
       <div class="field"><label>Venture</label><select id="nVenture" onchange="refreshNewItems()">${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
       <div class="field"><label>Department</label><select id="nDept">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>

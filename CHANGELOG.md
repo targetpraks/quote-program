@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.0 — 2026-09-15 (brand-wide visibility for requesters — duplicate prevention)
+
+### Added
+- **Brand scope toggle on the requester workspace.** *My requests* now carries two scopes: **My requests** (your own, unchanged) and **<Brand> — all** (every request in flight across your brand, e.g. "Papa Pasta — all"). A requester can see what colleagues have already asked for before raising a duplicate; their own rows are tagged *(you)* so they stay identifiable in the combined list.
+- **Duplicate-check search** on the brand view — instant free-text search across ref, requester, venture, department and line items, with a no-match state. The panel hint states the intent: *"Duplicate check — search by item before raising a new request."*
+- **Requested by filter** in the brand scope (replaces the redundant Brand dropdown, since the scope already fixes the brand).
+- **Duplicate-check prompt in the New request modal** — for requesters, the subtitle points at their brand's register first, keeping duplication prevention inside the workflow.
+
+### Notes
+- UI-only change; server rules already allow any authenticated staff member to read requests. No schema change.
+- Brand is derived from `qp_users.venture`; *All Ventures* users fall back to a group-wide register labelled "Group — all".
+- Verified E2E: Nadia (Papa Pasta) — own 4, brand 5; search "oven" → 1 row, "shelving" → 2, clear restores all 5; Requested-by=Sipho → 1. Thabo (TLF) brand scope shows TLF only (3 rows) with no cross-brand leakage. Buyer desk + approval desk regression-tested on the same build.
+
 ## v2.4.0 — 2026-09-15 (vendors tagged by brand + brand filter)
 
 ### Added
