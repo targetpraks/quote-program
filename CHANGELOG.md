@@ -1,5 +1,34 @@
 # Changelog
 
+## v2.9.0 — 2026-10-01 (live desk, budgets, spend report, regression suite)
+
+### Fixed
+- **CSV export was broken on every register.** The *Export CSV* buttons passed view-local variables (`base`, `list`, `ords`, `filtered`) into inline `onclick` handlers — an inline handler's scope chain is element → form → document → window, so the click threw `ReferenceError: base is not defined` and **no file was ever produced** on All requests, the buyer desk, Orders, Vendors or Catalog. (The detail-view PO CSV and Zoho payload were fine — they take a record id.) Each export now derives its own filtered list from state when called without an argument, so the file always matches what is on screen. Found by the new regression suite on its first run; five registers locked down by tests so it cannot come back.
+
+### Added (live data)
+- **The desk streams instead of going stale.** Registers only refreshed on navigation, so a buyer or manager was reading yesterday's queue until they clicked away and back. The app now subscribes to `qp_requests`, `qp_quotes`, `q_notifications` and `q_budgets` over PocketBase realtime, reloads (debounced 300 ms) on any change, and updates nav counts with it.
+- **Connection indicator** in the account block: `● Live · hh:mm:ss` while streaming, amber *Reconnecting* with 6 s backoff while not; a role that cannot read a collection is skipped after three attempts rather than flapping. `offline`/`online` re-subscribe.
+- **It never re-renders under you.** A modal open, a field mid-typing, or the detail view (where a re-render would scroll an approval in progress) gets a brass **“↻ Data updated — refresh”** pill instead; registers re-render in place and keep scroll position.
+
+### Added (budget control — activates the previously unused `q_budgets`)
+- **Budgets view** (Admin; manager edits, purchaser reads): monthly ceilings per brand · department, with **budget / committed / pending / remaining** and a usage meter (green → amber ≥80% → red over). Committed counts approved and ordered requests whose *needed by* month falls in the period — `qp_requests` carries no creation timestamp, so `needed_by` is the only defensible period anchor, and the view says so.
+- **Budget impact panel on the approval desk** — for every pending award: the ceiling it hits, value, free now, free after, and an *over by* flag. Unmatched requests are named, never silently omitted.
+- **Budget strip on the detail view** — the ceiling beside the approve/reject buttons, with “after this request: … free”.
+- **Estimated total on the new request form** — the form now writes `qp_requests.est_total` (a number field that existed but was never populated), validated like every other money input, with a live ceiling line: *“Papa Pasta · Operations · 2026-09 — R 101,110.00 free of R 120,000.00”*, turning red when the estimate exceeds it. Warning only — the request can still be raised.
+- Manager CRUD (add / edit / remove) with period, GL group and notes; filter chips per period; CSV export; nav count shows how many ceilings are over.
+
+### Added (reporting)
+- **Spend report** (Registers; manager + purchaser): awarded spend, POs issued, open pipeline and the *awarded above lowest bid* variance, with share breakdowns **by brand, department, vendor and month** (meters + percentages) and an **audit flags** table — awards above the lowest complete bid, and awards made on fewer than three quotes, the two things the SA 3-quotation rule cares about. Period chips (this month / each month / all time) and a CSV export of the whole report.
+
+### Added (regression suite)
+- **Playwright suite — 29 tests, two projects.** `npm test` (read-only): all five test accounts log in and visit every sidebar destination with **zero console/page errors**, detail round-trip, modal open/Escape, chip counts vs rows, global search, comparison matrix + print sheet, CSV export on every register, money/VAT/escaping/CSV invariants through a `window.__q` test handle, and no horizontal overflow at 420 / 780 / 1440px. `npm run test:writes` (mutates, then cleans up): realtime delivery of another session's write, the refresh pill on detail, manager budget CRUD, and a purchaser's write being refused.
+- Dev-only tooling: `package.json`, `playwright.config.js`, `tests/` (a zero-dependency static server included). The app itself is still one `index.html` with no build step and no runtime dependency.
+
+### Notes
+- **No schema change, no collection-rule change, no `pb_hooks` change.** `q_budgets` already existed with three seeded ceilings; `qp_requests.est_total` already existed. Manager can create/update/delete budgets under current rules; a purchaser's write is refused (asserted).
+- `window.__q` exposes pure helpers read-only for the suite — no behaviour change.
+- Verified: 29/29 Playwright tests green (read + writes), full role × view smoke with zero console errors, live update observed end-to-end (server write → open desk refreshes in ~2 s), responsive checks at 420/780/1440px.
+
 ## v2.8.1 — 2026-09-15 (dashboard register alignment)
 
 ### Fixed

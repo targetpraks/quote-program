@@ -4,6 +4,8 @@
 
 The app is a single file — `index.html`: the hardened PocketBase-backed build with real staff auth (requester / purchaser / manager), server-side 3-quote flip, duplicate-PO guards, VAT-normalised exports, back navigation, requester scoping. Live (renders): <https://targetpraks.github.io/quote-program/>.
 
+**v2.9.0 (2026-10-01) — live desk, budgets, spend report, regression suite.** Registers now **stream**: PocketBase realtime subscriptions refresh every open view within a second or two of another role acting (with a `● Live` indicator and a *refresh* pill instead of a re-render wherever you are reading or typing). The previously unused `q_budgets` collection becomes real control — monthly ceilings per brand · department with committed/pending/remaining meters, a **budget impact panel** on the approval desk, a ceiling strip on the detail view, and an estimated-total field on the request form that checks itself against what is free. A **spend report** breaks awarded money down by brand, department, vendor and month and flags awards made above the lowest bid or on fewer than three quotes. And the project gains its first **automated regression suite** (29 Playwright tests, read + writes), which found and fixed a real bug on its first run: every register's *Export CSV* button threw `base is not defined` and produced no file.
+
 **v2.8.1 (2026-09-15) — dashboard register alignment.** The "After your approval" panel's recent-orders block was rendering as a header-less table whose four cells collided with the five-column header above it (status pills appearing under "Venture", PO references under "Awarded vendor", an empty money column). It now carries its own **Ref · Status · PO · brand** header, and reference IDs no longer wrap mid-token.
 
 **v2.8.0 (2026-09-15) — design system and interface lift.** The interface is now documented as a formal design system in **`DESIGN.md`** (Google's DESIGN.md spec: tokens + rationale, lint-clean; Tailwind and DTCG exports committed as `tailwind.theme.json` / `tokens.json`). The canvas lifts out of near-black (`#0B0F1A` → `#1B2438`, ~3.7x luminance) into a lit midnight navy, and contrast improves as it does: faint metadata text moves 2.92:1 → 5.05:1, primary ink 11.9:1, every badge ≥4.68:1. A pre-existing horizontal overflow at ≤960px (which clipped the action column of every register on tablets) is fixed — panels now scroll inside their card. The build version shows in the sidebar.
@@ -22,6 +24,17 @@ Quorum needs a local **PocketBase 0.40.x** backend:
 4. Open `index.html` — `PB_URL` is hardcoded to `http://127.0.0.1:8090`; repoint it if your backend lives elsewhere.
 
 **GitHub Pages caveat:** the Pages-hosted copy renders, but it cannot reach a backend from the public site — `PB_URL` points at localhost **by design** (this desk is tailnet/internal-only; there is no public ingress). Run it locally against your own PocketBase for a working app.
+
+## Regression tests
+
+The app needs no build step, but it has a dev-only Playwright suite (`package.json`, `playwright.config.js`, `tests/`):
+
+1. PocketBase running on `127.0.0.1:8090` with the test accounts from `CLAUDE.md`.
+2. `npm install` once, then `npx playwright install chromium`.
+3. `npm test` — read-only: log in as all five accounts, visit every destination, assert zero console errors, chip/search/detail/CSV flows, money invariants, and no horizontal overflow at 420/780/1440px.
+4. `npm run test:writes` — mutates a little (realtime probe, manager budget CRUD) and cleans up after itself. Not run by default for that reason.
+
+The suite spins up its own static server on `127.0.0.1:4173`; nothing else is required. See `tests/README.md`.
 
 ## Server-side enforcement (`pb_hooks/quorum.pb.js`)
 

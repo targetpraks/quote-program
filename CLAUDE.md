@@ -12,10 +12,12 @@ Single-file app: `index.html` (~1350 lines). PocketBase 0.40.x backend on `http:
 - VAT-exclusive math uses `rateExcl()` (÷1.15, 2dp) — never raw division.
 
 ## Conventions
-- UK English. Currency `R 1,234.00` (en-ZA).
-- Design: existing CSS variables (--display, --gold, tone classes). Do not restyle; match.
+- UK English. Currency `R 1,234.00` (en-ZA) — but the separator differs between Chromium builds, so tests assert digits only.
+- Design: existing CSS variables (--display, --gold, tone classes). Do not restyle; match. New components belong in `DESIGN.md` first.
 - No build step, no framework, no bundler. Plain ES in one script block.
 - Changelog: append a version section at the TOP of `CHANGELOG.md`.
+- Tests: Playwright in `tests/` (dev-only `package.json`). `npm test` = read-only suite (5 accounts × every view, zero console errors, money/responsive invariants); `npm run test:writes` = mutates and cleans up (realtime, budget CRUD). PocketBase must be on `:8090`.
+- `window.__q` exposes pure helpers (`money`, `esc`, `rateExcl`, …) read-only for assertions — don't build app logic on it.
 
 ## Test accounts (qp_users collection, NOT PocketBase users)
 - manager@papapasta.co.za / Manager#2026

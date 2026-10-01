@@ -192,6 +192,7 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
   .rolebox .role-chip{margin-top:0}
   .rolebox .rb-mail{display:none}
   .rolebox .ver{display:none}
+  .rolebox .liveind{display:none}
   #btn-logout{width:auto;white-space:nowrap}
   main{padding:22px 16px 60px}
   .stats{grid-template-columns:repeat(2,1fr)}
@@ -200,7 +201,7 @@ pre.payload{background:var(--panel2);border:1px solid var(--rule-soft);border-ra
   .panel{overflow-x:auto}
 }
 @media print{
-  aside,.topbar,.chipbar,.panel-h .hint,td .btn,td .btn.small,td .btn.ghost,.crumbs,#globalSearchWrap,#printActions{display:none!important}
+  aside,.topbar,.chipbar,.panel-h .hint,td .btn,td .btn.small,td .btn.ghost,.crumbs,#globalSearchWrap,#printActions,.live-pill{display:none!important}
   body{background:#fff;color:#000}
   .app{grid-template-columns:1fr!important}
   main{padding:0;max-width:none}
@@ -218,6 +219,24 @@ nav::-webkit-scrollbar-track{background:transparent}
 .stat:hover{border-color:var(--rule)}
 .btn{transition:filter .15s ease,border-color .15s ease,background-color .15s ease}
 .ver{margin-top:12px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--faint)}
+/* live connection indicator + "data updated" pill */
+.liveind{display:flex;align-items:center;gap:6px;margin-top:7px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.liveind .dot{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
+.liveind.live{color:var(--green)}
+.liveind.live .dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+.liveind.down,.liveind.connecting{color:var(--amber)}
+.liveind.down .dot,.liveind.connecting .dot{background:var(--amber);animation:livepulse 1.1s ease-in-out infinite}
+@keyframes livepulse{50%{opacity:.3}}
+.live-pill{position:fixed;top:16px;right:22px;z-index:45;background:var(--panel);border:1px solid var(--gold);color:var(--gold);font:600 12px var(--body);padding:8px 14px;border-radius:999px;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+.live-pill:hover{filter:brightness(1.12)}
+/* budget / report meters — depth is a surface step, not a shadow */
+.bar{height:8px;background:var(--surface-sunken);border:1px solid var(--rule-soft);border-radius:99px;overflow:hidden;min-width:110px}
+.bar-fill{height:100%;background:var(--green);transition:width .2s ease}
+.bar-fill.warn{background:var(--amber)}
+.bar-fill.over{background:var(--red)}
+.bhint{font-size:12.5px;color:var(--muted);background:var(--surface-sunken);border:1px solid var(--rule-soft);border-left:2px solid var(--teal);border-radius:8px;padding:9px 12px}
+.bhint.warn{border-left-color:var(--red);color:var(--ink)}
+.bhint b{color:var(--ink)}
 @media (prefers-reduced-motion:no-preference){.stamp{animation:stamp .35s ease-out}@keyframes stamp{0%{transform:rotate(-4deg) scale(1.6);opacity:0}100%{transform:rotate(-4deg);opacity:1}}}
 :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .topbar-search{position:relative;flex:1;max-width:320px}
@@ -304,7 +323,7 @@ const priceEntry = (q, i) => {
 const rateExcl = (q, i) => { const e = priceEntry(q,i); if(e==null) return null; const v = +lineTotVatExcl(e); return isNaN(v) ? null : Math.round(v*100)/100; };
 
 const isAuthError = e => { const s = e?.status || e?.response?.status || e?.data?.code; return s===401 || s===403 || (s===404 && db.user); };
-const logoutExpired = msg => { pb.authStore.clear(); db.user=null; db.role=null; REQUESTS=[]; toast(msg||'Session expired — sign in again'); go('dash'); };
+const logoutExpired = msg => { stopLive(); pb.authStore.clear(); db.user=null; db.role=null; REQUESTS=[]; toast(msg||'Session expired — sign in again'); go('dash'); };
 function handleWriteErr(e, fallback){
   if(isAuthError(e)){ logoutExpired('Session expired — please sign in again'); return; }
   const m = e?.message || e?.response?.message || fallback || 'Request failed';
@@ -426,7 +445,7 @@ function globalSearchHtml(){
 window.setGlobalSearch = v => { G_SEARCH = v||''; if(['requests','buyerdesk','myreq','orders'].includes(db.view)) render(); };
 /* every role lands on its own workspace */
 const homeView = role => role==='manager' ? 'dash' : role==='purchaser' ? 'buyerdesk' : 'myreq';
-function backLabel(){ const m={dash:'Approval desk', buyerdesk:'Buyer desk', myreq:'My requests', requests:'All requests', vendors:'Vendors', catalog:'Catalog', notifications:'Alerts', users:'Staff', orders:'Purchase orders', settings:'Settings'}; return m[db.prev||homeView(db.role)]||'Back to list'; }
+function backLabel(){ const m={dash:'Approval desk', buyerdesk:'Buyer desk', myreq:'My requests', requests:'All requests', vendors:'Vendors', catalog:'Catalog', notifications:'Alerts', budgets:'Budgets', reports:'Spend report', users:'Staff', orders:'Purchase orders', settings:'Settings'}; return m[db.prev||homeView(db.role)]||'Back to list'; }
 
 /* ============================== views ============================== */
 const views = {};
@@ -438,6 +457,8 @@ function go(view, id){
   if(view!==db.view && view!=='detail') G_SEARCH='';
   db.view=view; db.viewId=id||null; save(); render(); }
 function render(){
+  const stalePill = document.getElementById('liveUpdatePill');
+  if(stalePill) stalePill.remove();
   const mainEl = main();
   if(!db.user){
     document.querySelector('nav').innerHTML = '';
@@ -458,6 +479,7 @@ function render(){
     {sec:'Registers', sc:'sec-blue', items:[
       role!=='requester' && {v:'requests', g:'☰', l:'All requests',   t:'t-blue'},
       {v:'orders', g:'✔', l:'Orders · Zoho', t:'t-blue'},
+      role!=='requester' && {v:'reports', g:'▤', l:'Spend report', t:'t-blue'},
     ]},
     {sec:'Master data', sc:'sec-green', items:[
       {v:'vendors', g:'⬢', l:'Vendors', t:'t-green'},
@@ -465,6 +487,7 @@ function render(){
     ]},
     {sec:'Admin', sc:'sec-violet', items:[
       role!=='requester' && {v:'notifications', g:'⚑', l:'Alerts',    t:'t-amber'},
+      role!=='requester' && {v:'budgets',       g:'◔', l:'Budgets',   t:'t-teal'},
       role==='manager'   && {v:'users',         g:'◉', l:'Staff',     t:'t-violet'},
       {v:'settings', g:'⚙', l:'Settings', t:'t-violet'},
     ]},
@@ -475,6 +498,7 @@ function render(){
       s.items.map(it=>`<button class="nav-btn ${it.t}" data-v="${it.v}" aria-label="${esc(it.l)}"><span class="nico" aria-hidden="true">${it.g}</span><span class="nlab">${it.l}</span><span class="count"></span></button>`).join('')
     }</div>`).join('');
   document.getElementById('rolebox').innerHTML = userHTML();
+  paintLive();
   document.getElementById('btn-logout').addEventListener('click', logout);
   const v = db.view||homeView(role);
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.v===v));
@@ -497,7 +521,8 @@ function userHTML(){
   <div class="role-chip ${rc}">${esc(db.role)}</div>
   <div class="rb-mail">${esc(db.user.email)}</div>
   <button class="btn ghost small" id="btn-logout">Sign out</button>
-  <div class="ver" title="Build version — check this against the repo before debugging stale copies">Quorum v2.8.1</div>`;
+  <div class="ver" title="Build version — check this against the repo before debugging stale copies">Quorum v2.9.0</div>
+  <div class="liveind off" id="liveInd" role="status" aria-live="polite"></div>`;
 }
 function loginPage(){
   return `<div style="display:flex;justify-content:center;padding-top:9vh">
@@ -520,7 +545,8 @@ function counts(){
     buyerdesk: REQUESTS.filter(r=>r.status==='quoting').length + REQUESTS.filter(r=>r.status==='approved').length,
     myreq: mine.filter(r=>['quoting','pending'].includes(r.status)).length,
     requests: REQUESTS.length,
-    orders: REQUESTS.filter(r=>r.poNumber).length
+    orders: REQUESTS.filter(r=>r.poNumber).length,
+    budgets: BUDGETS.length ? overBudgetCount() : 0
   };
   // async counts for v2 views (fire-and-forget)
   if(db.user && (db.role==='manager'||db.role==='purchaser')){
@@ -599,7 +625,7 @@ views.dash = function(){
         : 'Track what you have asked purchasing for.'}</div>
     </div>
     <button class="btn" onclick="openNew()">＋ New purchase request</button></div>
-    ${stats}${queue}${after}${db.role==='requester'?myAct:''}`;
+    ${stats}${queue}${db.role==='manager'?budgetImpactHtml():''}${after}${db.role==='requester'?myAct:''}`;
 };
 
 /* ---------- requests list ---------- */
@@ -612,7 +638,7 @@ views.requests = function(){
     <div style="display:flex;align-items:center;gap:12px">${globalSearchHtml()}<button class="btn" onclick="openNew()">＋ New request</button></div></div>
     <div class="chipbar" id="reqChips">${statusChipsHtml(base)}</div>
     <div class="panel">
-    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportRequestsCSV(applyReqFilter(base).filter(r=>matchesGlobalSearch(r, G_SEARCH)))">Export CSV</button></div>`:''}
+    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportRequestsCSV()">Export CSV</button></div>`:''}
     <table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Status</th><th class="right">Best total</th><th>Quotes</th><th>PO</th><th></th></tr></thead><tbody>
     ${filtered.map(r=>{const b=bestTotal(r);
       return `<tr><td><b>${esc(r.id)}</b><div class="venture">needed ${esc(r.neededBy)}</div></td>
@@ -672,7 +698,7 @@ views.buyerdesk = function(){
       ${(BUY_VENTURE!=='All'||BUY_REQUESTER!=='All')?`<button class="chip" onclick="setBuyVenture('All');setBuyRequester('All')">✕ Clear</button>`:''}
     </div>
     <div class="panel">
-    ${list.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportRequestsCSV(list)">Export CSV</button></div>`:''}
+    ${list.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportRequestsCSV()">Export CSV</button></div>`:''}
     <table><thead><tr><th>Ref</th><th>Venture / dept</th><th>Requested by</th><th>What's needed</th><th>Status</th><th class="right">Quotes</th><th></th></tr></thead><tbody>
     ${list.map(r=>`<tr><td><b>${esc(r.id)}</b>${r.poNumber?`<div class="venture">${esc(r.poNumber)}</div>`:''}<div class="venture">needed ${esc(r.neededBy)}</div></td>
       <td>${esc(r.venture)}<div style="color:var(--faint);font-size:12px">${esc(r.department)}</div></td>
@@ -821,6 +847,7 @@ views.detail = function(){
         </div>
       </div>
       <div>
+        ${budgetStripHtml(r)}
         <div class="panel"><div class="panel-h"><h3>Requested lines</h3></div>
           <table><tbody>${r.lines.map(l=>`<tr><td><b>${esc(l.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(l.spec||'')}</div></td><td class="num right">× ${esc(l.qty)}</td></tr>`).join('')}</tbody></table></div>
         <div class="panel"><div class="panel-h"><h3>Vendor quotes</h3><span class="hint">${r.quotes.length}/3${r.status==='quoting'?' — need 3 to submit for approval':''}</span></div>
@@ -894,7 +921,7 @@ views.orders = function(){
       ${(ORD_VENTURE!=='All'||ORD_REQUESTER!=='All')?`<button class="chip" onclick="setOrdVenture('All');setOrdRequester('All')">✕ Clear</button>`:''}
     </div>
     ${ords.length? `<div class="panel">
-      <div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportOrdersCSV(ords)">Export CSV</button></div>
+      <div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportOrdersCSV()">Export CSV</button></div>
       <table><thead><tr><th>PO</th><th>From request</th><th>Vendor</th><th>Requested by</th><th class="right">Total</th><th></th></tr></thead><tbody>
     ${ords.map(r=>{const q=r.quotes[r.winner]; const t=quoteTotal(q,r.lines);
       return `<tr><td><b>${esc(r.poNumber)}</b></td><td>${esc(r.id)}<div class="venture">${esc(r.venture)} · ${esc(r.department)}</div></td>
@@ -948,7 +975,7 @@ views.vendors = async function(){
       ${tabs.map(b=>`<button class="chip ${VND_FILTER===b?'active':''}" data-v="${esc(b)}" onclick="setVendorFilter(this.dataset.v)" aria-label="Filter vendors by ${esc(b)}">${esc(b)}${countFor(b)?`<span class="count">${countFor(b)}</span>`:''}</button>`).join('')}
     </div>
     <div class="panel">
-    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportVendorsCSV(filtered)">Export CSV</button></div>`:''}
+    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportVendorsCSV()">Export CSV</button></div>`:''}
     <table><thead><tr><th>Vendor</th><th>Brands</th><th>Contact</th><th>Terms</th><th>Tax clearance</th><th>Flags</th><th></th></tr></thead><tbody>
     ${filtered.map(v=>{
       const exp=v.tax_clearance_expiry? new Date(v.tax_clearance_expiry) : null;
@@ -1078,7 +1105,7 @@ views.catalog = async function(){
       ${tabs.map(v=>`<button class="chip ${CAT_FILTER===v?'active':''}" data-v="${esc(v)}" onclick="setCatalogFilter(this.dataset.v)" aria-label="Filter catalog by ${esc(v)}">${esc(v)}${countFor(v)?`<span class="count">${countFor(v)}</span>`:''}</button>`).join('')}
     </div>
     <div class="panel">
-    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportCatalogCSV(filtered)">Export CSV</button></div>`:''}
+    ${filtered.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportCatalogCSV()">Export CSV</button></div>`:''}
     <table><thead><tr><th>Item</th><th>Entity</th><th>Unit</th><th>GL code</th><th>GL group</th><th class="right">Est. price (VAT-excl)</th>${canDel?'<th></th>':''}</tr></thead><tbody>
     ${filtered.map(i=>`<tr><td><b>${esc(i.item)}</b><div style="color:var(--faint);font-size:11.5px">${esc(i.default_spec||'')}</div></td>
       <td><span class="venture">${esc(i.venture||'—')}</span></td>
@@ -1154,6 +1181,338 @@ views.notifications = async function(){
 };
 
 
+/* ---------- budgets (q_budgets) ---------- */
+let BUDGETS = [];
+let BUD_FILTER = 'current'; // 'current' | 'all' | a specific YYYY-MM
+const currentPeriod = () => new Date().toISOString().slice(0,7);
+async function loadBudgets(){
+  BUDGETS = await pb.collection('q_budgets').getFullList({ requestKey: null });
+}
+/* Committed spend is keyed on the request's *needed by* month: qp_requests
+   carries no creation timestamp, so needed_by is the only defensible period
+   anchor. Approved + ordered count as committed; pending is shown apart. */
+const periodOfRequest = r => (r.neededBy||'').slice(0,7) || currentPeriod();
+function requestValue(r){
+  const q = (r.winner!=null && r.winner!=='' && r.quotes[r.winner]) ? r.quotes[r.winner] : null;
+  if(q){ const t=quoteTotal(q,r.lines); if(t.total) return t.total; }
+  const b = bestTotal(r);
+  if(b!=null) return b;
+  return +r.estTotal || 0;
+}
+function budgetsFor(r){
+  const p = periodOfRequest(r);
+  return BUDGETS.filter(b => b.period===p
+    && (!b.venture || b.venture===r.venture)
+    && (!b.department || b.department===r.department));
+}
+function findBudget(r){
+  const c = budgetsFor(r);
+  return c.find(b=>b.department===r.department) || c.find(b=>b.venture===r.venture) || c[0] || null;
+}
+function budgetStats(b){
+  const inScope = REQUESTS.filter(r => (!b.venture || r.venture===b.venture)
+    && (!b.department || r.department===b.department)
+    && periodOfRequest(r)===b.period);
+  const sum = list => list.reduce((s,r)=>s+requestValue(r),0);
+  const committed = sum(inScope.filter(r=>['approved','ordered'].includes(r.status)));
+  const pending   = sum(inScope.filter(r=>r.status==='pending'));
+  const sourcing  = sum(inScope.filter(r=>r.status==='quoting'));
+  const amount = +b.amount||0;
+  return { amount, committed, pending, sourcing,
+           remaining: amount-committed, pct: amount ? (committed/amount)*100 : 0 };
+}
+const overBudgetCount = () => BUDGETS.filter(b=>budgetStats(b).remaining < 0).length;
+const barHtml = (pct, cls) => `<div class="bar"><div class="bar-fill ${cls||''}" style="width:${Math.max(0,Math.min(100,pct)).toFixed(1)}%"></div></div>`;
+const pctClass = pct => pct>=100 ? 'over' : pct>=80 ? 'warn' : '';
+
+views.budgets = function(){
+  if(db.role==='requester'){ go(homeView(db.role)); return; }
+  const canEdit = db.role==='manager';
+  const periods = [...new Set(BUDGETS.map(b=>b.period))].sort().reverse();
+  const sel = BUD_FILTER==='current' ? currentPeriod()
+            : BUD_FILTER==='all' ? null : BUD_FILTER;
+  const inScope = b => sel ? b.period===sel : true;
+  const list = BUDGETS.filter(inScope).sort((a,b)=>(b.period||'').localeCompare(a.period||'') || (a.venture||'').localeCompare(b.venture||''));
+  const countFor = v => BUDGETS.filter(b=>v==='all' ? true : v==='current' ? b.period===currentPeriod() : b.period===v).length;
+  const total = list.reduce((s,b)=>s+(+b.amount||0),0);
+  const st = list.map(b=>budgetStats(b));
+  const committed = st.reduce((s,x)=>s+x.committed,0);
+  const pending = st.reduce((s,x)=>s+x.pending,0);
+  const remaining = total-committed;
+  const chips = [['current','This month'], ...periods.map(p=>[p,p]), ['all','All periods']]
+    .filter(([v],i,arr)=>arr.findIndex(x=>x[0]===v)===i);
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Control</div><h2>Budgets</h2>
+      <div class="sub">Monthly ceilings per brand and department. <b>Committed</b> counts approved and ordered requests whose <i>needed by</i> date falls in the period; requests awaiting approval are shown separately so you can see what is still coming.</div></div>
+      ${canEdit?`<button class="btn" onclick="editBudget('', this)" aria-label="Add budget">＋ Add budget</button>`:''}</div>
+    <div class="chipbar" id="budChips">
+      ${chips.map(([v,l])=>`<button class="chip ${BUD_FILTER===v?'active':''}" data-v="${esc(v)}" onclick="setBudgetFilter(this.dataset.v)" aria-label="Show budget period ${esc(l)}">${esc(l)}${countFor(v)?`<span class="count">${countFor(v)}</span>`:''}</button>`).join('')}
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="n gold">${money(total)}</div><div class="l">Budget ${sel?'for '+esc(sel):'— all periods'}</div></div>
+      <div class="stat"><div class="n blue">${money(committed)}</div><div class="l">Committed (approved / ordered)</div></div>
+      <div class="stat"><div class="n amber">${money(pending)}</div><div class="l">Awaiting approval</div></div>
+      <div class="stat"><div class="n" style="color:${remaining<0?'var(--red)':'var(--green)'}">${money(remaining)}</div><div class="l">Remaining</div></div>
+    </div>
+    <div class="panel">
+    ${list.length?`<div class="panel-h" style="display:flex;gap:10px;justify-content:flex-end"><button class="btn small ghost" onclick="exportBudgetsCSV()">Export CSV</button></div>`:''}
+    <table><thead><tr><th>Brand</th><th>Department</th><th>GL group</th><th class="right">Budget</th><th class="right">Committed</th><th class="right">Pending</th><th class="right">Remaining</th><th style="width:150px">Used</th>${canEdit?'<th></th>':''}</tr></thead><tbody>
+    ${list.map(b=>{ const s=budgetStats(b);
+      return `<tr><td><span class="venture">${esc(b.venture||'Group')}</span></td>
+      <td>${esc(b.department||'All departments')}</td>
+      <td style="color:var(--faint);font-size:12px">${esc(b.gl_group||'—')}</td>
+      <td class="num right">${money(s.amount)}</td>
+      <td class="num right">${money(s.committed)}</td>
+      <td class="num right" style="color:${s.pending?'var(--amber)':'var(--faint)'}">${money(s.pending)}</td>
+      <td class="num right" style="color:${s.remaining<0?'var(--red)':'var(--ink)'}">${money(s.remaining)}</td>
+      <td>${barHtml(s.pct, pctClass(s.pct))}<div style="font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:3px">${s.pct.toFixed(0)}%${s.remaining<0?' · over':''}</div></td>
+      ${canEdit?`<td class="right" style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn small ghost" onclick="editBudget('${b.id}', this)" aria-label="Edit ${esc(b.venture||'group')} ${esc(b.department||'')} budget">Edit</button>
+        <button class="btn small ghost" onclick="delBudget('${b.id}', this)" aria-label="Remove ${esc(b.venture||'group')} ${esc(b.department||'')} budget">Remove</button></td>`:''}</tr>`;}).join('')}
+    ${list.length?'':`<tr><td colspan="9"><div class="empty" style="padding:34px"><div class="big">${BUDGETS.length?'No budgets in this period':'No budgets yet'}</div><div style="color:var(--muted)">${canEdit?'Set a monthly ceiling per brand and department — the approval desk shows the impact of every award against it.':'No ceilings are set for this period.'}</div></div></td></tr>`}
+    </tbody></table></div>`;
+};
+window.setBudgetFilter = v => { BUD_FILTER=v; views.budgets(); };
+window.exportBudgetsCSV = function(){
+  const rows=[['Period','Brand','Department','GL group','Budget (R)','Committed (R)','Pending (R)','Remaining (R)']];
+  const sel = BUD_FILTER==='current' ? currentPeriod() : BUD_FILTER==='all' ? null : BUD_FILTER;
+  (sel?BUDGETS.filter(b=>b.period===sel):BUDGETS).forEach(b=>{
+    const s=budgetStats(b);
+    rows.push([b.period, b.venture||'Group', b.department||'All departments', b.gl_group||'',
+               s.amount.toFixed(2), s.committed.toFixed(2), s.pending.toFixed(2), s.remaining.toFixed(2)]);
+  });
+  downloadCsv('budgets-'+today()+'.csv', rows);
+  toast('Budgets CSV exported');
+};
+window.editBudget = function(id, el){
+  if(db.role!=='manager') return;
+  FOCUS_TRIGGER = el||document.activeElement;
+  const b = id ? BUDGETS.find(x=>x.id===id) : null;
+  openModal(`<div class="modal" style="width:560px"><h3 style="font-family:var(--display);font-size:20px">${b?'Edit budget':'Add budget'}</h3>
+    <div class="msub">A ceiling for one brand and department in one month. Awards are measured against it on the approval desk.</div>
+    <div class="form" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label for="bgVenture">Brand</label><select id="bgVenture"><option value="">Group — all brands</option>${VENTURES.map(v=>`<option ${b&&b.venture===v?'selected':''}>${esc(v)}</option>`).join('')}</select></div>
+      <div class="field"><label for="bgDept">Department</label><select id="bgDept"><option value="">All departments</option>${DEPTS.map(d=>`<option ${b&&b.department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
+      <div class="field"><label for="bgPeriod">Period</label><input type="month" id="bgPeriod" value="${esc(b?b.period:currentPeriod())}"></div>
+      <div class="field"><label for="bgAmount">Budget (R)</label><input type="number" step="0.01" min="0" id="bgAmount" value="${b&&b.amount!=null?b.amount:''}" placeholder="0.00"></div>
+      <div class="field"><label for="bgGroup">GL group</label><input id="bgGroup" value="${esc(b?b.gl_group||'':'')}" placeholder="Equipment / Raw materials…"></div>
+      <div class="field"><label for="bgNotes">Notes</label><input id="bgNotes" value="${esc(b?b.notes||'':'')}" placeholder="Optional"></div>
+    </div>
+    <div id="bgFormErr" class="inline-err"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn ghost" onclick="closeModal(); FOCUS_TRIGGER=null">Cancel</button>
+      <button class="btn" id="bgSubmit" onclick="saveBudget('${id||''}', this)">${b?'Save changes':'Add budget'}</button></div></div>`);
+};
+window.saveBudget = async function(id, btn){
+  const errEl = document.getElementById('bgFormErr');
+  const rec = {
+    venture: document.getElementById('bgVenture').value,
+    department: document.getElementById('bgDept').value,
+    period: document.getElementById('bgPeriod').value,
+    amount: document.getElementById('bgAmount').value,
+    gl_group: document.getElementById('bgGroup').value.trim(),
+    notes: document.getElementById('bgNotes').value.trim()
+  };
+  if(!/^\d{4}-\d{2}$/.test(rec.period)){ errEl.textContent='Period must be a month (YYYY-MM).'; return; }
+  if(rec.amount===''){ errEl.textContent='Budget amount is required.'; return; }
+  const amtErr = validatePrice(rec.amount);
+  if(amtErr){ errEl.textContent=amtErr; return; }
+  rec.amount = +rec.amount;
+  errEl.textContent='';
+  if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  try{
+    if(id) await pb.collection('q_budgets').update(id, rec);
+    else   await pb.collection('q_budgets').create(rec);
+    await loadBudgets(); closeModal(); FOCUS_TRIGGER=null; views.budgets(); toast(id?'Budget updated':'Budget added');
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent=id?'Save changes':'Add budget'; } handleWriteErr(e, 'Save failed'); }
+};
+window.delBudget = async function(id, btn){
+  if(db.role!=='manager') return;
+  if(!confirm('Remove this budget?')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Removing…'; }
+  try{ await pb.collection('q_budgets').delete(id); await loadBudgets(); views.budgets(); toast('Budget removed'); }
+  catch(e){ if(btn){ btn.disabled=false; btn.textContent='Remove'; } handleWriteErr(e, 'Delete failed'); }
+};
+
+/* approval desk — what each pending award does to the budget */
+function budgetImpactHtml(){
+  const pend = REQUESTS.filter(r=>r.status==='pending');
+  if(!pend.length || !BUDGETS.length) return '';
+  const rows = pend.map(r=>{
+    const b = findBudget(r);
+    const val = requestValue(r);
+    if(!b) return `<tr><td><b>${esc(r.id)}</b><div class="venture">${esc(r.venture)} · ${esc(r.department)}</div></td>
+      <td class="num right">${money(val)}</td><td colspan="4" style="color:var(--faint)">No budget set for this brand · department · ${esc(periodOfRequest(r))}</td></tr>`;
+    const s = budgetStats(b);
+    const after = s.remaining - val;
+    const projected = s.pct + (s.amount ? (val/s.amount)*100 : 0);
+    return `<tr><td><b>${esc(r.id)}</b><div class="venture">${esc(r.venture)} · ${esc(r.department)}</div></td>
+      <td>${esc(b.venture||'Group')} · ${esc(b.department||'All')}<div style="color:var(--faint);font-size:11.5px">${esc(b.period)}</div></td>
+      <td class="num right">${money(val)}</td>
+      <td class="num right">${money(s.remaining)}</td>
+      <td class="num right" style="color:${after<0?'var(--red)':'var(--ink)'}">${money(after)}</td>
+      <td>${barHtml(projected, pctClass(after<0?100:projected))}
+        <div style="font-family:var(--mono);font-size:11px;margin-top:3px;color:${after<0?'var(--red)':'var(--faint)'}">${after<0?'over by '+money(-after):'within budget'}</div></td></tr>`;
+  }).join('');
+  return `<div class="panel"><div class="panel-h"><h3>Budget impact</h3><span class="hint">If you approve each of these today</span></div>
+    <table><thead><tr><th>Request</th><th>Budget</th><th class="right">Value</th><th class="right">Free now</th><th class="right">After</th><th style="width:150px">Position</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+/* detail view — the ceiling next to the approve/reject buttons */
+function budgetStripHtml(r){
+  const b = findBudget(r);
+  if(!b) return '';
+  const s = budgetStats(b);
+  const val = requestValue(r);
+  const counted = ['approved','ordered'].includes(r.status);
+  const after = counted ? s.remaining : s.remaining - val;
+  const pct = counted ? s.pct : s.pct + (s.amount?(val/s.amount)*100:0);
+  return `<div class="panel"><div class="panel-h"><h3>Budget · ${esc(b.period)}</h3><span class="hint">${esc(b.venture||'Group')} · ${esc(b.department||'All')}</span></div>
+    <div style="padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)"><span>Budget</span><span class="num">${money(s.amount)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)"><span>Committed</span><span class="num">${money(s.committed)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)"><span>Free</span><span class="num" style="color:${s.remaining<0?'var(--red)':'var(--ink)'}">${money(s.remaining)}</span></div>
+      <div style="margin-top:10px">${barHtml(pct, pctClass(after<0?100:pct))}</div>
+      <div style="font-family:var(--mono);font-size:11px;margin-top:6px;color:${after<0?'var(--red)':'var(--faint)'}">${counted ? 'this request is already counted' : after<0 ? 'approving takes it over by '+money(-after) : 'after this request: '+money(after)+' free'}</div>
+      ${b.gl_group?`<div style="font-size:11.5px;color:var(--faint);margin-top:6px">GL group · ${esc(b.gl_group)}</div>`:''}
+    </div></div>`;
+}
+
+/* ---------- spend report ---------- */
+let REP_FILTER = 'current'; // 'current' | 'all' | a YYYY-MM
+function buildReport(period){
+  const scope = REQUESTS.filter(r => period==='all' || periodOfRequest(r)===period);
+  const awarded = scope.filter(r=>['approved','ordered'].includes(r.status));
+  const pipeline = scope.filter(r=>['quoting','pending'].includes(r.status));
+  const value = list => list.reduce((s,r)=>s+requestValue(r),0);
+  const group = (list, keyFn) => {
+    const m = new Map();
+    list.forEach(r=>{ const k = keyFn(r)||'—'; const g = m.get(k)||{n:0, v:0}; g.n++; g.v += requestValue(r); m.set(k, g); });
+    return [...m.entries()].map(([k,g])=>({name:k, n:g.n, v:g.v})).sort((a,b)=>b.v-a.v);
+  };
+  const total = value(awarded);
+  // audit flags: awarded above the lowest complete bid, and awards made on
+  // fewer than three quotes (the SA 3-quotation rule has a waiver for both)
+  const overLowest = awarded.filter(r=>{ const b=bestTotal(r); return b!=null && requestValue(r) > b+0.009; });
+  const thinQuotes = awarded.filter(r=>r.quotes.length<3);
+  const lowestLift = overLowest.reduce((s,r)=>{ const b=bestTotal(r); return s + (b!=null ? requestValue(r)-b : 0); }, 0);
+  const periods = [...new Set(REQUESTS.filter(r=>['approved','ordered'].includes(r.status)).map(periodOfRequest))].sort().reverse();
+  return {
+    period, scope, awarded, pipeline, total,
+    poCount: awarded.filter(r=>r.poNumber).length,
+    pipelineValue: value(pipeline),
+    byBrand: group(awarded, r=>r.venture),
+    byDept: group(awarded, r=>r.department),
+    byVendor: group(awarded, r=>{ const q=r.quotes[r.winner]; return q ? (q.vendor||'').trim() : '—'; }),
+    byMonth: periods.slice(0,6).reverse().map(p=>({name:p, n:awarded.filter(r=>periodOfRequest(r)===p).length,
+              v: value(awarded.filter(r=>periodOfRequest(r)===p))})),
+    overLowest, thinQuotes, lowestLift
+  };
+}
+const shareRows = (rows, total, label) => rows.map(x=>
+  `<tr><td>${esc(x.name)}</td><td class="num right">${x.n}</td><td class="num right">${money(x.v)}</td>
+   <td style="width:170px">${barHtml(total? (x.v/total)*100 : 0, '')}
+   <div style="font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:3px">${total?((x.v/total)*100).toFixed(1):'0.0'}%</div></td></tr>`).join('');
+const shareTable = (title, rows, total, hint) => `
+  <div class="panel"><div class="panel-h"><h3>${title}</h3><span class="hint">${hint}</span></div>
+  <table><thead><tr><th>${title==='By month'?'Period':title==='By vendor'?'Vendor':title==='By department'?'Department':'Brand'}</th><th class="right">Awards</th><th class="right">Value</th><th style="width:170px">Share</th></tr></thead><tbody>
+  ${rows.length ? shareRows(rows, total) : `<tr><td colspan="4"><div class="empty" style="padding:26px">No awards in this period.</div></td></tr>`}
+  </tbody></table></div>`;
+
+views.reports = function(){
+  if(db.role==='requester'){ go(homeView(db.role)); return; }
+  const period = REP_FILTER==='current' ? currentPeriod() : REP_FILTER==='all' ? 'all' : REP_FILTER;
+  const rep = buildReport(period);
+  const periods = [...new Set(REQUESTS.map(periodOfRequest))].sort().reverse();
+  const chips = [['current','This month'], ...periods.map(p=>[p,p]), ['all','All time']]
+    .filter(([v],i,arr)=>arr.findIndex(x=>x[0]===v)===i);
+  const countFor = v => REQUESTS.filter(r=> v==='all' ? true : v==='current' ? periodOfRequest(r)===currentPeriod() : periodOfRequest(r)===v).length;
+  const liftPct = (()=>{
+    let lowestSum = 0;
+    rep.overLowest.forEach(r=>{ const b=bestTotal(r); if(b!=null) lowestSum += b; });
+    if(!rep.overLowest.length || !lowestSum) return 0;
+    return (rep.lowestLift / lowestSum) * 100;
+  })();
+  main().innerHTML = `
+    <div class="topbar"><div><div class="kicker">Reporting</div><h2>Spend report</h2>
+    <div class="sub">Where the committed money went — by brand, department, vendor and month — plus the two audit flags that matter for the 3-quote rule: awards made above the lowest bid, and awards made on fewer than three quotes.</div></div>
+    <button class="btn ghost" onclick="exportReportCSV()">Export CSV</button></div>
+    <div class="chipbar" id="repChips">
+      ${chips.map(([v,l])=>`<button class="chip ${REP_FILTER===v?'active':''}" data-v="${esc(v)}" onclick="setReportFilter(this.dataset.v)" aria-label="Show ${esc(l)}">${esc(l)}${countFor(v)?`<span class="count">${countFor(v)}</span>`:''}</button>`).join('')}
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="n gold">${money(rep.total)}</div><div class="l">Awarded spend${period==='all'?'':' · '+esc(period)}</div></div>
+      <div class="stat"><div class="n blue">${rep.poCount}</div><div class="l">Purchase orders issued</div></div>
+      <div class="stat"><div class="n amber">${money(rep.pipelineValue)}</div><div class="l">Open pipeline (quoting + pending)</div></div>
+      <div class="stat"><div class="n" style="color:${rep.overLowest.length?'var(--red)':'var(--green)'}">${rep.overLowest.length? '+'+liftPct.toFixed(1)+'%' : '0.0%'}</div><div class="l">Awarded above lowest bid${rep.overLowest.length?' · '+rep.overLowest.length+' request(s)':''}</div></div>
+    </div>
+    ${rep.awarded.length ? `
+    <div class="grid2" style="grid-template-columns:1fr 1fr;align-items:start">
+      ${shareTable('By brand', rep.byBrand, rep.total, 'awarded value')}
+      ${shareTable('By department', rep.byDept, rep.total, 'awarded value')}
+    </div>
+    <div class="grid2" style="grid-template-columns:1fr 1fr;align-items:start">
+      ${shareTable('By vendor', rep.byVendor, rep.total, 'who wins the work')}
+      ${shareTable('By month', rep.byMonth, Math.max(...rep.byMonth.map(m=>m.v),1), 'last 6 periods')}
+    </div>` : `<div class="panel"><div class="empty" style="padding:44px"><div class="big">No awards ${period==='all'?'yet':'in '+esc(period)}</div><div style="color:var(--muted)">Approved and ordered requests appear here with their awarded values.</div></div></div>`}
+    <div class="panel"><div class="panel-h"><h3>Audit flags</h3><span class="hint">3-quote rule — worth a second look before the next award</span></div>
+      <table><thead><tr><th>Request</th><th>Awarded vendor</th><th class="right">Awarded</th><th class="right">Lowest bid</th><th class="right">Difference</th><th>Flag</th></tr></thead><tbody>
+      ${[...rep.overLowest, ...rep.thinQuotes.filter(r=>!rep.overLowest.includes(r))].map(r=>{
+        const q=r.quotes[r.winner]; const b=bestTotal(r); const v=requestValue(r);
+        const flags=[ b!=null && v>b+0.009 ? 'above lowest' : '', r.quotes.length<3 ? (3-r.quotes.length)+' quote(s) short' : '' ].filter(Boolean).join(' · ');
+        return `<tr><td><b>${esc(r.id)}</b><div class="venture">${esc(r.venture)} · ${esc(periodOfRequest(r))}</div></td>
+          <td>${q?esc((q.vendor||'').trim()):'—'}<div style="color:var(--faint);font-size:11.5px">${r.quotes.length}/3 quotes</div></td>
+          <td class="num right">${money(v)}</td>
+          <td class="num right">${b!=null?money(b):'—'}</td>
+          <td class="num right" style="color:${b!=null&&v>b+0.009?'var(--red)':'var(--faint)'}">${b!=null?money(v-b):'—'}</td>
+          <td><span class="badge b-rejected">${esc(flags)}</span></td></tr>`;}).join('')}
+      ${(!rep.overLowest.length && !rep.thinQuotes.length)?`<tr><td colspan="6"><div class="empty" style="padding:26px">Nothing flagged in this period — every award went to the lowest complete bid with three quotes attached.</div></td></tr>`:''}
+      </tbody></table></div>`;
+};
+window.setReportFilter = v => { REP_FILTER=v; views.reports(); };
+window.exportReportCSV = function(){
+  const period = REP_FILTER==='current' ? currentPeriod() : REP_FILTER==='all' ? 'all' : REP_FILTER;
+  const rep = buildReport(period);
+  const rows=[['Spend report', period],[],['Section','Name','Awards','Value (R)','Share %']];
+  const push = (label, list) => list.forEach(x=>rows.push([label, x.name, x.n, x.v.toFixed(2), rep.total?((x.v/rep.total)*100).toFixed(1):'0.0']));
+  push('Brand', rep.byBrand); push('Department', rep.byDept); push('Vendor', rep.byVendor); push('Month', rep.byMonth);
+  rows.push([], ['Audit flags'], ['Request','Awarded vendor','Awarded (R)','Lowest bid (R)','Difference (R)','Flag']);
+  rep.overLowest.forEach(r=>{ const q=r.quotes[r.winner]; const b=bestTotal(r); const v=requestValue(r);
+    rows.push([r.id, q?(q.vendor||'').trim():'', v.toFixed(2), b!=null?b.toFixed(2):'', b!=null?(v-b).toFixed(2):'', 'above lowest']); });
+  rep.thinQuotes.filter(r=>!rep.overLowest.includes(r)).forEach(r=>{ const q=r.quotes[r.winner]; const v=requestValue(r);
+    rows.push([r.id, q?(q.vendor||'').trim():'', v.toFixed(2), '', '', (3-r.quotes.length)+' quote(s) short']); });
+  downloadCsv('spend-report-'+period+'-'+today()+'.csv', rows);
+  toast('Spend report exported');
+};
+
+/* live ceiling line inside the new-request form */
+window.updateBudgetHint = function(){
+  const el = document.getElementById('bHint');
+  if(!el) return;
+  const vEl = document.getElementById('nVenture'), dEl = document.getElementById('nDept');
+  if(!vEl || !dEl) return;
+  const v = vEl.value, d = dEl.value;
+  const p = (document.getElementById('nNeeded')?.value || today()).slice(0,7) || currentPeriod();
+  const estEl = document.getElementById('nEst');
+  const est = estEl && estEl.value !== '' ? Number(estEl.value) : 0;
+  const cands = BUDGETS.filter(b => b.period===p && (!b.venture || b.venture===v) && (!b.department || b.department===d));
+  const b = cands.find(x=>x.department===d) || cands.find(x=>x.venture===v) || cands[0];
+  if(!b){
+    el.className = 'bhint';
+    el.innerHTML = `No budget set for <b>${esc(v)}</b> · <b>${esc(d)}</b> in ${esc(p)} — the request can still be raised.`;
+    return;
+  }
+  const s = budgetStats(b);
+  const free = s.remaining;
+  const over = est > free;
+  el.className = 'bhint' + (over ? ' warn' : '');
+  el.innerHTML = `<b>${esc(b.venture||'Group')} · ${esc(b.department||'All departments')} · ${esc(b.period)}</b> — ${
+      free < 0 ? `${money(-free)} over already` : `${money(free)} free of ${money(s.amount)}`
+    }${est ? (over
+      ? ` · <span style="color:var(--red)">estimate exceeds it by ${money(est-free)}</span>`
+      : ` · after this request: ${money(free-est)} free`) : ''}`;
+};
+
 /* ---------- settings ---------- */
 /* ============================== actions ============================== */
 window.login = async function(){
@@ -1166,23 +1525,27 @@ window.login = async function(){
     const rec = res.record || res;   // SDK >=0.23 returns {record, token}
     db.user = rec; db.role = rec.role; db.view = homeView(rec.role); db.viewId = null;
     MY_SCOPE='mine'; MY_PERSON='All'; MY_SEARCH=''; MY_FILTER='All'; MY_VENTURE='All'; G_SEARCH='';
-    await loadRequests(); render();
+    await loadRequests();
+    await loadBudgets().catch(()=>{});
+    render(); startLive();
   }catch(e){
     document.getElementById('liErr').textContent = 'Sign-in failed — check email and password.';
     btn.disabled = false; btn.textContent = 'Sign in';
   }
 };
-window.logout = () => { pb.authStore.clear(); db.user=null; db.role=null; REQUESTS=[]; go('dash'); };
+window.logout = () => { stopLive(); pb.authStore.clear(); db.user=null; db.role=null; REQUESTS=[]; go('dash'); };
 
 window.openNew = function(el){
   FOCUS_TRIGGER = el||document.activeElement;
   openModal(`<div class="modal"><h3 style="font-family:var(--display);font-size:20px">New purchase request</h3>
     <div class="msub">What does the department need? Purchasing will source three quotes.${db.role==='requester'?` Before raising it, check <b>${esc(db.user.venture||'your brand')} — all</b> on My requests in case a colleague already asked for the same thing.`:'  '}</div>
     <div class="form">
-      <div class="field"><label for="nVenture">Venture</label><select id="nVenture" onchange="refreshNewItems()">${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
-      <div class="field"><label for="nDept">Department</label><select id="nDept">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>
-      <div class="field"><label for="nNeeded">Needed by</label><input type="date" id="nNeeded" value="${today()}"></div>
+      <div class="field"><label for="nVenture">Venture</label><select id="nVenture" onchange="refreshNewItems(); updateBudgetHint()">${VENTURES.map(v=>`<option>${v}</option>`).join('')}</select></div>
+      <div class="field"><label for="nDept">Department</label><select id="nDept" onchange="updateBudgetHint()">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>
+      <div class="field"><label for="nNeeded">Needed by</label><input type="date" id="nNeeded" value="${today()}" onchange="updateBudgetHint()"></div>
+      <div class="field"><label for="nEst">Estimated total (R)</label><input type="number" step="0.01" min="0" id="nEst" placeholder="Optional — checked against budget" oninput="updateBudgetHint()"></div>
       <div class="field"><label for="nReq">Requested by</label><input id="nReq" value="${esc(db.user.name)}" readonly></div>
+      <div class="field full"><div id="bHint" class="bhint" aria-live="polite"></div></div>
       <div class="field full"><label for="nNotes">Notes</label><textarea id="nNotes" rows="2" placeholder="Context the approver should have"></textarea></div>
       <div class="field full"><label>Line items <span id="nItemHint" style="color:var(--faint);font-weight:400"></span></label>
         <div class="lines-box"><table id="nLines" aria-label="Line items"><tbody>
@@ -1195,6 +1558,7 @@ window.openNew = function(el){
       <button class="btn ghost" onclick="closeModal(); FOCUS_TRIGGER=null">Cancel</button>
       <button class="btn" id="nSubmit" onclick="submitReq(this)">Submit request</button></div></div>`);
   refreshNewItems();
+  updateBudgetHint();
 };
 window.addLine = function(){
   const tb=document.querySelector('#nLines tbody'); const tr=document.createElement('tr');
@@ -1230,6 +1594,13 @@ window.submitReq = async function(btn){
   }
   if(!lines.length){ errEl.textContent='Add at least one line item.'; return; }
   if(qtyErr){ errEl.textContent=qtyErr; return; }
+  const estRaw = document.getElementById('nEst').value;
+  let estTotal;
+  if(estRaw !== ''){
+    const estErr = validatePrice(estRaw);
+    if(estErr){ errEl.textContent='Estimated total: '+estErr; return; }
+    estTotal = +estRaw;
+  }
   if(btn){ btn.disabled=true; btn.textContent='Submitting…'; }
   errEl.textContent='';
   const yr = new Date().getFullYear();
@@ -1241,6 +1612,7 @@ window.submitReq = async function(btn){
       ref, venture:document.getElementById('nVenture').value, department:document.getElementById('nDept').value,
       requester: db.user.name, requester_id: db.user.id, needed_by: document.getElementById('nNeeded').value + ' 00:00:00.000Z',
       notes: document.getElementById('nNotes').value.trim(), status:'quoting',
+      ...(estTotal!=null ? {est_total: estTotal} : {}),
       lines, audit:[{ts:new Date().toISOString(), actor:db.user.name, action:'Request created', note: lines.length+' line(s)'}]
     });
     closeModal(); FOCUS_TRIGGER=null; await loadRequests(); go('detail', rec.id); toast('Request '+ref+' submitted to purchasing');
@@ -1421,6 +1793,12 @@ window.exportCSV = function(id){
   toast('CSV exported');
 };
 window.exportRequestsCSV = function(list){
+  // Called from an inline onclick, where the register's local consts are out
+  // of scope — with no argument, re-derive exactly what the screen shows.
+  if(!list){
+    const base = db.role==='requester' ? REQUESTS.filter(r=>r.requesterId===db.user.id) : REQUESTS;
+    list = applyReqFilter(base).filter(r=>matchesGlobalSearch(r, G_SEARCH));
+  }
   const rows=[['Ref','Status','Venture','Department','Requester','Needed by','Best total (R)','Quotes','PO','Notes']];
   for(const r of list){
     // `bestTotal` applies the brand VAT gate (a bid with no VAT status never
@@ -1441,6 +1819,10 @@ window.exportRequestsCSV = function(list){
   toast('Requests CSV exported');
 };
 window.exportOrdersCSV = function(list){
+  if(!list){ // inline handler scope — rebuild the filtered PO list from state
+    const all = REQUESTS.filter(r=>r.poNumber && (db.role!=='requester' || r.requesterId===db.user.id));
+    list = all.filter(r=>(ORD_VENTURE==='All'||r.venture===ORD_VENTURE) && (ORD_REQUESTER==='All'||r.requester===ORD_REQUESTER)).filter(r=>matchesGlobalSearch(r, G_SEARCH));
+  }
   const rows=[['PO','Date','From request','Venture','Department','Requester','Vendor','Total (R)']];
   for(const r of list){
     const q=r.quotes[r.winner]; const t=q?quoteTotal(q,r.lines):null;
@@ -1457,6 +1839,10 @@ window.exportOrdersCSV = function(list){
   toast('Orders CSV exported');
 };
 window.exportVendorsCSV = function(list){
+  if(!list){ // inline handler scope — rebuild the brand-filtered vendor list
+    const vendors = VND_CACHE || [];
+    list = VND_FILTER==='All' ? vendors : vendors.filter(v=>vndBrands(v).includes(VND_FILTER));
+  }
   const rows=[['Vendor','VAT number','Contact email','Phone','Payment terms','Brands','Tax clearance','Blacklisted','Related party']];
   for(const v of list){
     const bs = vndBrands(v);
@@ -1466,6 +1852,10 @@ window.exportVendorsCSV = function(list){
   toast('Vendors CSV exported');
 };
 window.exportCatalogCSV = function(list){
+  if(!list){ // inline handler scope — rebuild the entity-filtered catalog list
+    const items = CAT_CACHE || [];
+    list = CAT_FILTER==='All' ? items : items.filter(i=>i.venture===CAT_FILTER);
+  }
   const rows=[['Item','Entity','Unit','GL code','GL group','Est. price (R, VAT-excl)','Default spec']];
   for(const i of list){
     rows.push([i.item, i.venture||'—', i.unit||'', i.gl_code||'', i.gl_group||'', i.est_price!=null?i.est_price:'', i.default_spec||'']);
@@ -1568,12 +1958,111 @@ views.settings = function(){
     <div class="panel"><div class="panel-h"><h3>Data</h3></div>
       <div style="padding:18px;display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn ghost" onclick="backupAll()">Export backup (JSON)</button>
-        <span style="color:var(--faint);font-size:12.5px;align-self:center">Server-backed on PocketBase · ${PB_URL} · Quorum v2.8.1 (design system 1.0 — see DESIGN.md)</span>
+        <span style="color:var(--faint);font-size:12.5px;align-self:center">Server-backed on PocketBase · ${PB_URL} · Quorum v2.9.0 (design system 1.0 — see DESIGN.md)</span>
       </div></div>`;
   document.getElementById('zOrg').addEventListener('change',e=>localStorage.setItem('qp_zoho_org', e.target.value.trim()));
 };
 
+/* ============================== live data (realtime) ============================== */
+/* Registers only refreshed on navigation, so a buyer or manager saw a stale
+   queue until they clicked away and back. Subscribe to the collections the
+   desk reads, reload (debounced) on any change, and never re-render under
+   the user: modals, in-progress typing and the detail view get a refresh
+   pill instead. */
+const LIVE_COLLECTIONS = ['qp_requests','qp_quotes','q_notifications','q_budgets'];
+let liveSubs = [];              // [{col, id}]
+let liveRetry = {};             // col -> failed attempts
+let LIVE_DEAD = {};             // col -> not subscribable for this role
+let liveRetryTimer = null, liveReloadTimer = null;
+let LIVE_STATE = 'off';         // off | connecting | live | down
+let LIVE_SYNCED = null;
+const fmtClock = ts => new Date(ts).toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+function paintLive(){
+  const el = document.getElementById('liveInd');
+  if(!el) return;
+  if(!db.user) return;
+  const label = LIVE_STATE==='live' ? 'Live' : LIVE_STATE==='down' ? 'Reconnecting' : LIVE_STATE==='connecting' ? 'Connecting' : 'Offline';
+  el.className = 'liveind ' + LIVE_STATE;
+  el.innerHTML = `<span class="dot" aria-hidden="true"></span>${label}${LIVE_SYNCED?` · ${fmtClock(LIVE_SYNCED)}`:''}`;
+  el.title = LIVE_STATE==='live'
+    ? 'Streaming changes from the server — registers update without navigating'
+    : 'Not receiving live updates — retrying';
+}
+function stopLive(){
+  liveSubs.forEach(s => { try{ pb.collection(s.col).unsubscribe(s.id); }catch(e){} });
+  liveSubs = [];
+  if(liveRetryTimer){ clearTimeout(liveRetryTimer); liveRetryTimer = null; }
+  liveRetry = {}; LIVE_DEAD = {}; LIVE_STATE = 'off';
+}
+function startLive(cols){
+  const list = (cols || LIVE_COLLECTIONS);
+  if(!db.user) return;
+  if(!cols){ stopLive(); LIVE_STATE='connecting'; paintLive(); }
+  list.forEach(col => {
+    if(LIVE_DEAD[col] || liveSubs.some(s => s.col === col)) return;
+    pb.collection(col).subscribe('*', () => {
+      LIVE_STATE = 'live';
+      scheduleLiveReload();
+    }).then(sid => {
+      liveSubs.push({col, id: sid});
+      LIVE_STATE = 'live'; LIVE_SYNCED = new Date(); paintLive();
+    }).catch(err => {
+      // Not a session failure: a role may legitimately be unable to read a
+      // collection. Retry a few times, then give up on that collection only.
+      liveRetry[col] = (liveRetry[col]||0) + 1;
+      if(liveRetry[col] >= 3){
+        LIVE_DEAD[col] = true;
+        console.warn('live updates unavailable for', col, err?.message||err);
+        if(!liveSubs.length) LIVE_STATE = 'down';
+        paintLive();
+        return;
+      }
+      LIVE_STATE = 'down'; paintLive();
+      if(liveRetryTimer) return;
+      liveRetryTimer = setTimeout(() => { liveRetryTimer = null; if(db.user) startLive(list); }, 6000);
+    });
+  });
+}
+function scheduleLiveReload(){
+  if(liveReloadTimer) return;
+  liveReloadTimer = setTimeout(async () => {
+    liveReloadTimer = null;
+    if(!db.user) return;
+    try { await loadRequests(); }
+    catch(e){
+      if(isAuthError(e)){ logoutExpired(); return; }
+      LIVE_STATE = 'down'; paintLive(); return;
+    }
+    if(db.role!=='requester') await loadBudgets().catch(()=>{});
+    liveRefresh();
+  }, 300);
+}
+function markUpdated(){
+  if(document.getElementById('liveUpdatePill')) return;
+  const p = document.createElement('button');
+  p.id = 'liveUpdatePill'; p.type = 'button'; p.className = 'live-pill';
+  p.textContent = '↻ Data updated — refresh';
+  p.onclick = () => { p.remove(); render(); };
+  document.body.appendChild(p);
+}
+function liveRefresh(){
+  LIVE_SYNCED = new Date();
+  counts();
+  paintLive();
+  if(document.querySelector('.modal-bg')) return;                 // never disturb an open dialog
+  const a = document.activeElement;
+  if(a && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName)){ markUpdated(); return; } // user is mid-type
+  if(db.view === 'detail'){ markUpdated(); return; }              // never scroll an approval in progress
+  const y = window.scrollY;
+  render();
+  window.scrollTo({top:y});
+}
+
 /* ============================== wiring ============================== */
+/* test handle — pure helpers exposed read-only for the regression suite (tests/helpers.spec.js) */
+window.__q = { money, esc, rateExcl, priceOf, priceEntry, quoteTotalV2, bestTotalV2,
+               csvCell, csvRow, validateQty, validatePrice, matchesGlobalSearch, VENTURES, DEPTS, THRESHOLDS };
 document.getElementById('nav').innerHTML = '';
 document.addEventListener('click', e=>{
   const b=e.target.closest('.nav-btn'); if(b){ go(b.dataset.v); return; }
@@ -1583,6 +2072,8 @@ document.addEventListener('click', e=>{
 document.addEventListener('keydown', e=>{
   if(e.key==='Enter' && (e.target.id==='liEmail'||e.target.id==='liPass')) login();
 });
+window.addEventListener('offline', () => { if(db.user){ LIVE_STATE='down'; paintLive(); } });
+window.addEventListener('online', () => { if(db.user) startLive(); });
 
 async function boot(){
   if(pb.authStore.isValid){
@@ -1590,8 +2081,10 @@ async function boot(){
     db.role = pb.authStore.record.role;
     db.view = homeView(db.role);
     try { await loadRequests(); } catch(e){ console.error(e); }
+    if(db.role!=='requester') await loadBudgets().catch(e=>console.error('budgets', e));
   }
   render();
+  startLive();
 }
 boot();</script>
 </body>

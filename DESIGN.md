@@ -195,6 +195,33 @@ components:
   link:
     textColor: "{colors.gold-deep}"
     typography: "{typography.body-md}"
+  meter:
+    backgroundColor: "{colors.surface-sunken}"
+    height: 8px
+    rounded: "{rounded.pill}"
+  meter-fill:
+    backgroundColor: "{colors.green}"
+    height: 8px
+  meter-fill-warn:
+    backgroundColor: "{colors.amber}"
+    height: 8px
+  meter-fill-over:
+    backgroundColor: "{colors.red}"
+    height: 8px
+  live-indicator:
+    textColor: "{colors.green}"
+    typography: "{typography.table-head}"
+  live-indicator-down:
+    textColor: "{colors.amber}"
+    typography: "{typography.table-head}"
+  refresh-pill:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.gold}"
+    rounded: "{rounded.pill}"
+  budget-hint:
+    backgroundColor: "{colors.surface-sunken}"
+    textColor: "{colors.ink-muted}"
+    rounded: "{rounded.sm}"
 ---
 
 ## Overview
@@ -292,6 +319,19 @@ adding light.
   (`:focus-visible`, 2px gold, 2px offset) preserved everywhere.
 - **Badges** — pill, hue-as-text on a 16% tint of the same hue. `pending` gold, `approved` green,
   `rejected` red, `ordered` blue, `quoting` amber.
+- **`meter` / `meter-fill`** — a sunken 8px track with a fill that reports a ratio: budget consumed,
+  share of spend. Green while the number is healthy, amber at ≥80%, red at ≥100% or when the
+  projected position goes negative. The ratio is always printed beside it as a number, because a
+  bar alone is not auditable.
+- **`live-indicator`** — the account block's connection state: a 6px dot with `table-head` text.
+  Green ("Live · hh:mm:ss") while the desk is streaming server changes; amber and pulsing while
+  reconnecting. Motion respects `prefers-reduced-motion`.
+- **`refresh-pill`** — brass-outlined pill, fixed top-right, that appears when data changed while
+  the operator was reading a detail view or typing. It offers the update instead of taking the view
+  away from them; it is the only fixed-position element besides the toast.
+- **`budget-hint`** — the inline ceiling line in the request form: sunken surface, muted text, a
+  2px teal edge at rest. The edge turns red and the text goes to `ink` when the estimate would
+  exceed what is free — a warning, never a block.
 
 ## Do's and Don'ts
 
